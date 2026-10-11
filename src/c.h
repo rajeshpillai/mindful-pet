@@ -1,0 +1,13 @@
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <X11/Xatom.h>
+#include <X11/extensions/shape.h>
+#include <X11/extensions/Xfixes.h>
+#include <poll.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+#include <time.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <stdio.h>
