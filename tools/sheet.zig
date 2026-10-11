@@ -19,6 +19,7 @@ const rows = [_]Row{
     .{ .name = "alert", .frames = &sprites.alert },
     .{ .name = "happy", .frames = &sprites.happy },
     .{ .name = "angry", .frames = &sprites.angry },
+    .{ .name = "work", .frames = &sprites.work },
     .{ .name = "held", .frames = &sprites.held },
 };
 

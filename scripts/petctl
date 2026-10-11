@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Send one command to the desktop pet. Silent no-op when the pet is not running,
+# so it is safe to call from hooks, makefiles and shell functions.
+#
+#   petctl ok | fail | work | done | sleep | wake | meow | goto X | quit
+#   petctl run CMD...   run CMD, then send ok or fail based on its exit code
+#
+# The pipe lives at $XDG_RUNTIME_DIR/pet.fifo (or /tmp/pet.fifo); override with PET_FIFO.
+
+fifo="${PET_FIFO:-${XDG_RUNTIME_DIR:-/tmp}/pet.fifo}"
+
+send() {
+    [ -p "$fifo" ] || return 0
+    # Open read+write: never blocks, even if the reader just went away.
+    { exec 3<>"$fifo"; } 2>/dev/null || return 0
+    printf '%s\n' "$*" >&3 2>/dev/null
+    exec 3>&-
+    return 0
+}
+
+case "$1" in
+    "" | -h | --help)
+        sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+        ;;
+    run)
+        shift
+        [ $# -gt 0 ] || { echo "petctl run: missing command" >&2; exit 2; }
+        send work
+        "$@"
+        status=$?
+        if [ $status -eq 0 ]; then send ok; else send fail; fi
+        exit $status
+        ;;
+    *)
+        send "$@"
+        ;;
+esac

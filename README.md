@@ -65,43 +65,69 @@ command per line:
 | --- | --- |
 | `ok`, `pass`, `happy` | Content: eyes closed, little heart. |
 | `fail`, `error`, `angry` | Hisses, then sulks. |
+| `work`, `busy` | Sits and types until `ok`, `fail` or `done` arrives (gives up after 15 min). Ignores the pointer meanwhile. |
+| `done`, `idle` | Ends `work` without a verdict. |
 | `sleep` | Curls up until woken. |
 | `wake` | Wakes a sleeping cat. |
 | `meow`, `alert`, `poke` | Startle it. |
 | `goto X` | Walk so its centre ends up at screen x coordinate X. |
 | `quit`, `exit` | Exit. |
 
-Examples:
+### petctl and shell integration
+
+`scripts/petctl` wraps the pipe and is a silent no-op when the cat is not
+running, so it is safe in hooks and makefiles:
 
 ```sh
-echo fail > "$XDG_RUNTIME_DIR/pet.fifo"
-
-# React to a build result
-zig build && echo ok > "$XDG_RUNTIME_DIR/pet.fifo" || echo fail > "$XDG_RUNTIME_DIR/pet.fifo"
+scripts/petctl fail              # one command
+scripts/petctl run zig build     # cat works while the command runs, then ok/fail
 ```
 
-Claude Code hook example (`.claude/settings.json`), so the cat wakes while an
-agent is working and settles when the turn ends:
+`scripts/pet.sh` adds shortcuts to your shell. Source it from `~/.bashrc`:
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "echo wake > \"$XDG_RUNTIME_DIR/pet.fifo\"" }] }],
-    "Stop":       [{ "hooks": [{ "type": "command", "command": "echo ok > \"$XDG_RUNTIME_DIR/pet.fifo\"" }] }]
-  }
-}
+```sh
+source /path/to/jarvis-bot/scripts/pet.sh
+zb            # zig build, cat reacts to the result
+zt            # zig build test
+pet_run make  # any command
+pet_say meow
+```
+
+Set `PET_FIFO` to point both at a different pipe. Commands sent while the cat
+is not running are dropped: the pet removes its pipe on exit.
+
+### Claude Code
+
+`.claude/settings.json` in this repo wires three hooks: when you submit a
+prompt the cat starts typing, when the turn ends it purrs, and when Claude
+needs your attention (a permission prompt) it meows. They call
+`scripts/petctl`, so nothing happens if the cat is not running. To get the
+same in another project, copy that file or merge the `hooks` block into its
+`.claude/settings.json`.
+
+### Other ideas
+
+```sh
+# git: wake the cat on every commit
+echo 'petctl meow' > .git/hooks/post-commit && chmod +x .git/hooks/post-commit
+
+# tests in a watch loop
+watchexec -e zig -- petctl run zig build test
 ```
 
 ## Project layout
 
 ```
 src/main.zig     event loop, argument parsing, rendering into the window buffer
-src/pet.zig      the state machine (idle, walk, run, sit, sleep, alert, happy, angry, held, fall)
+src/pet.zig      the state machine (idle, walk, run, sit, sleep, alert, happy, angry, work, held, fall)
 src/sprites.zig  16x16 frames drawn as ASCII art, expanded at comptime
 src/x11.zig      transparent override-redirect window, XImage blit, XFixes input shape
 src/events.zig   named-pipe command reader and parser
 src/c.h          the C headers translated by build.zig (Xlib, XFixes, libc bits)
 tools/sheet.zig  renders all frames to a PPM for reviewing the art
+scripts/petctl   send a command to the pipe, or wrap a command and report its result
+scripts/pet.sh   shell shortcuts (zb, zt, pet_run, pet_say)
+.claude/         Claude Code hooks that drive the cat
 ```
 
 To change the art, edit the ASCII blocks in `src/sprites.zig` (palette at the

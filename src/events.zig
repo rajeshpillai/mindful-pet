@@ -34,9 +34,12 @@ pub const Fifo = struct {
         return f;
     }
 
+    /// Closes and removes the pipe, so writers see "no pet running" rather
+    /// than filling a buffer nobody will drain.
     pub fn close(self: *Fifo) void {
         if (self.fd >= 0) _ = c.close(self.fd);
         self.fd = -1;
+        _ = c.unlink(&self.path_buf);
     }
 
     pub fn path(self: *const Fifo) []const u8 {
@@ -76,6 +79,8 @@ pub fn parse(raw: []const u8) ?Command {
     if (eq(u8, line, "sleep")) return .{ .pet = .sleep };
     if (eq(u8, line, "wake")) return .{ .pet = .wake };
     if (eq(u8, line, "meow") or eq(u8, line, "alert") or eq(u8, line, "poke")) return .{ .pet = .alert };
+    if (eq(u8, line, "work") or eq(u8, line, "busy")) return .{ .pet = .work };
+    if (eq(u8, line, "done") or eq(u8, line, "idle")) return .{ .pet = .done };
     if (eq(u8, line, "quit") or eq(u8, line, "exit")) return .quit;
     if (std.mem.startsWith(u8, line, "goto ")) {
         const x = std.fmt.parseFloat(f32, std.mem.trim(u8, line[5..], " ")) catch return null;

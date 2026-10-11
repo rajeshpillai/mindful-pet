@@ -346,6 +346,46 @@ pub const angry = [_]Frame{
     }, 0),
 };
 
+/// Working: sitting, front paws tapping at an invisible keyboard.
+pub const work = [_]Frame{
+    parse(.{
+        "................",
+        "..........k..k..",
+        "..........kokok.",
+        "..........kooook",
+        "..........koeook",
+        "..........kooook",
+        "........kkkoopk.",
+        ".......kooooook.",
+        "......koodoook..",
+        "..k..kooodookk..",
+        "..k.koooooooook.",
+        "..kokoooooooook.",
+        "...kkoooooooook.",
+        "....koooook.k...",
+        "....kkkkkkkkk...",
+        "................",
+    }, 0),
+    parse(.{
+        "................",
+        "..........k..k..",
+        "..........kokok.",
+        "..........kooook",
+        "..........koeook",
+        "..........kooook",
+        "........kkkoopk.",
+        ".......kooooook.",
+        "......koodoook..",
+        "..k..kooodoook..",
+        "..k.kooooooookk.",
+        "..kokoooooooook.",
+        "...kkoooooooook.",
+        "....kooook.k....",
+        "....kkkkkkkkk...",
+        "................",
+    }, 0),
+};
+
 /// Held by the scruff: legs dangling.
 pub const held = [_]Frame{
     parse(.{

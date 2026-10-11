@@ -6,10 +6,10 @@ const sprites = @import("sprites.zig");
 
 pub const Facing = enum { left, right };
 
-pub const State = enum { idle, walk, run, sit, sleep, alert, happy, angry, held, fall };
+pub const State = enum { idle, walk, run, sit, sleep, alert, happy, angry, work, held, fall };
 
 /// Things the outside world can tell the cat.
-pub const Event = enum { build_ok, build_fail, sleep, wake, alert };
+pub const Event = enum { build_ok, build_fail, sleep, wake, alert, work, done };
 
 pub const Input = struct {
     pointer_x: f32,
@@ -48,6 +48,8 @@ pub const Pet = struct {
     const run_speed: f32 = 230;
     const gravity: f32 = 1800;
     const nap_after: f32 = 45;
+    /// A `work` command without a matching ok/fail/done gives up after this.
+    const work_timeout: f32 = 15 * 60;
     const forever: f32 = 1e9;
 
     pub fn init(rand: std.Random, screen_w: f32, screen_h: f32, size: f32) Pet {
@@ -78,6 +80,8 @@ pub const Pet = struct {
             .sleep => self.enter(.sleep, forever),
             .wake => if (self.state == .sleep) self.enter(.alert, 0.6),
             .alert => self.meow(),
+            .work => self.enter(.work, work_timeout),
+            .done => if (self.state == .work) self.enter(.idle, self.randRange(1, 2)),
         }
     }
 
@@ -139,6 +143,10 @@ pub const Pet = struct {
             .alert, .happy, .angry => {
                 if (self.state_time > self.state_limit) self.enter(.sit, self.randRange(3, 7));
             },
+            // Working cats ignore the pointer; only events or the timeout end it.
+            .work => {
+                if (self.state_time > self.state_limit) self.enter(.idle, 1);
+            },
             .idle, .sit => {
                 if (pointer_near) {
                     self.startChase(in);
@@ -182,6 +190,7 @@ pub const Pet = struct {
             .alert => &sprites.alert[0],
             .happy => &sprites.happy[cycle(t, 0.4, sprites.happy.len)],
             .angry => &sprites.angry[cycle(t, 0.15, sprites.angry.len)],
+            .work => &sprites.work[cycle(t, 0.2, sprites.work.len)],
             .held, .fall => &sprites.held[0],
         };
     }
@@ -192,6 +201,11 @@ pub const Pet = struct {
         if (self.state == .held or self.state == .fall) return;
         std.debug.print("meow!\n", .{});
         self.idle_for = 0;
+        // Stay on the job: a poke while working is a glance up, not a break.
+        if (self.state == .work) {
+            self.anim_time = 0;
+            return;
+        }
         self.enter(.alert, 0.8);
     }
 
@@ -258,6 +272,19 @@ test "cat walks to a target and arrives" {
     while (pet.state == .walk and i < 60 * 60) : (i += 1) pet.update(1.0 / 60.0, still);
     try std.testing.expect(pet.state != .walk);
     try std.testing.expectApproxEqAbs(@as(f32, 1000 - 32), pet.x, 1.0);
+}
+
+test "work lasts until a result arrives and ignores the pointer" {
+    var prng = std.Random.DefaultPrng.init(3);
+    var pet = Pet.init(prng.random(), 1920, 1080, 64);
+    pet.onEvent(.work);
+    try std.testing.expectEqual(State.work, pet.state);
+    const nearby: Input = .{ .pointer_x = pet.x + 150, .pointer_y = pet.y, .pointer_moved = true };
+    var i: usize = 0;
+    while (i < 60 * 30) : (i += 1) pet.update(1.0 / 60.0, nearby);
+    try std.testing.expectEqual(State.work, pet.state);
+    pet.onEvent(.build_ok);
+    try std.testing.expectEqual(State.happy, pet.state);
 }
 
 test "build failure makes the cat angry, then it sits" {

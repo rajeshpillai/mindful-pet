@@ -23,7 +23,7 @@ const usage =
     \\  -h, --help  show this help
     \\
     \\Mouse:  left-click = meow, drag = carry (it falls when dropped), right-click = quit
-    \\Pipe:   echo fail > $XDG_RUNTIME_DIR/pet.fifo   (ok, fail, sleep, wake, meow, goto X, quit)
+    \\Pipe:   echo fail > $XDG_RUNTIME_DIR/pet.fifo   (ok, fail, work, done, sleep, wake, meow, goto X, quit)
     \\
 ;
 
