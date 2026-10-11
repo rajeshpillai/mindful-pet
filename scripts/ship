@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# "Ship it" / "deploy": build an optimized binary and copy it, with petctl,
+# into the user's tools folder.
+#
+#   scripts/ship [DEST]        default DEST: ~/Desktop/tools
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+dest="${1:-$HOME/Desktop/tools}"
+
+cd "$root"
+zig build -Doptimize=ReleaseSafe
+mkdir -p "$dest"
+install -m 755 zig-out/bin/pet "$dest/pet"
+install -m 755 scripts/petctl "$dest/petctl"
+echo "shipped $(git rev-parse --short HEAD 2>/dev/null || echo untracked) -> $dest/pet ($(du -h "$dest/pet" | cut -f1)) and $dest/petctl"
