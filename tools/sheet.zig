@@ -20,6 +20,7 @@ const rows = [_]Row{
     .{ .name = "happy", .frames = &sprites.happy },
     .{ .name = "angry", .frames = &sprites.angry },
     .{ .name = "work", .frames = &sprites.work },
+    .{ .name = "bat", .frames = &sprites.bat },
     .{ .name = "held", .frames = &sprites.held },
 };
 
@@ -28,10 +29,11 @@ pub fn main(init: std.process.Init) !void {
     _ = it.skip();
     const out_path = it.next() orelse "sheet.ppm";
 
-    var max_frames: usize = 0;
+    const transforms = [_]sprites.Transform{ .none, .flip_h, .flip_v, .rot180, .wall_left, .wall_right };
+    var max_frames: usize = transforms.len;
     for (rows) |r| max_frames = @max(max_frames, r.frames.len);
     const width = max_frames * (cell + gap) + gap;
-    const height = rows.len * (cell + gap) + gap;
+    const height = (rows.len + 1) * (cell + gap) + gap;
 
     const buf = try init.gpa.alloc(u8, width * height * 3);
     defer init.gpa.free(buf);
@@ -58,6 +60,21 @@ pub fn main(init: std.process.Init) !void {
             buf[i + 2] = @truncate(px);
         };
     };
+
+    // Last row: the standing frame in every orientation the renderer supports.
+    for (transforms, 0..) |t, ti| {
+        const ox = gap + ti * (cell + gap);
+        const oy = gap + rows.len * (cell + gap);
+        for (0..cell) |y| for (0..cell) |x| {
+            const src = sprites.source(t, @intCast(x / scale), @intCast(y / scale));
+            const px = sprites.idle[0].px[@intCast(src.y)][@intCast(src.x)];
+            if (px >> 24 == 0) continue;
+            const i = ((oy + y) * width + (ox + x)) * 3;
+            buf[i] = @truncate(px >> 16);
+            buf[i + 1] = @truncate(px >> 8);
+            buf[i + 2] = @truncate(px);
+        };
+    }
 
     var path_buf: [1024:0]u8 = undefined;
     const path = try std.mem.printSentinel(&path_buf, "{s}", .{out_path}, 0);

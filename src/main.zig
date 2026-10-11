@@ -7,23 +7,29 @@ const events = @import("events.zig");
 
 const default_scale: u32 = 4;
 const max_scale: u32 = 12;
+const default_top: u32 = 32;
 const frame_ms: c_int = 33;
 
 /// Integer zoom of the 16x16 art, chosen on the command line.
 var scale: u32 = default_scale;
 /// Window edge in pixels: sprites.W * scale.
 var size: u32 = sprites.W * default_scale;
+/// Pixels reserved at the top of the screen (GNOME's bar) that the cat hangs below.
+var top: u32 = default_top;
+var mute: bool = false;
 
 const usage =
-    \\usage: pet [--scale N] [--help]
+    \\usage: pet [--scale N] [--top N] [--mute] [--help]
     \\
-    \\A cat that lives at the bottom of your screen.
+    \\A cat that lives on the edges of your screen.
     \\
     \\  --scale N   pixel zoom of the 16x16 art, 1..12 (default 4 = 64px cat)
+    \\  --top N     pixels reserved for the top panel; the cat hangs below it (default 32)
+    \\  --mute      no sounds
     \\  -h, --help  show this help
     \\
-    \\Mouse:  left-click = meow, drag = carry (it falls when dropped), right-click = quit
-    \\Pipe:   echo fail > $XDG_RUNTIME_DIR/pet.fifo   (ok, fail, work, done, sleep, wake, meow, goto X, quit)
+    \\Mouse:  left-click = meow, drag = carry (it falls when dropped), rest the pointer on it = paw swipe, right-click = quit
+    \\Pipe:   echo fail > $XDG_RUNTIME_DIR/pet.fifo   (ok, fail, work, done, climb, sleep, wake, meow, goto X, quit)
     \\
 ;
 
@@ -45,7 +51,10 @@ pub fn main(init: std.process.Init) !void {
         @floatFromInt(win.screen_w),
         @floatFromInt(win.screen_h),
         @floatFromInt(size),
+        @floatFromInt(top),
     );
+
+    var audio = Audio.init(!mute);
 
     std.debug.print("pet: {d}x{d} screen, {s} window\n", .{ win.screen_w, win.screen_h, if (win.argb) "transparent" else "opaque (no ARGB visual)" });
     if (fifo) |f| std.debug.print("pet: commands via  echo fail > {s}\n", .{f.path()});
@@ -55,7 +64,7 @@ pub fn main(init: std.process.Init) !void {
     var last_ptr = win.queryPointer();
     var drag: ?struct { ox: i32, oy: i32, px: i32, py: i32, moved: bool } = null;
     var last_frame: ?*const sprites.Frame = null;
-    var last_facing = pet.facing;
+    var last_transform = pet.transform();
     var raise_timer: f32 = 0;
     const debug_events = c.getenv("PET_DEBUG") != null;
 
@@ -112,12 +121,15 @@ pub fn main(init: std.process.Init) !void {
         last_ms = now;
         pet.update(dt, input);
 
+        if (pet.takeSound()) |snd| audio.play(snd);
+
         const frame = pet.frame();
-        if (frame != last_frame or pet.facing != last_facing) {
-            render(win.pixels, frame, pet.facing, win.argb);
+        const transform = pet.transform();
+        if (frame != last_frame or transform != last_transform) {
+            render(win.pixels, frame, transform, win.argb);
             if (win.argb) applyInputShape(&win);
             last_frame = frame;
-            last_facing = pet.facing;
+            last_transform = transform;
             win.present();
         }
         win.move(@intFromFloat(pet.x), @intFromFloat(pet.y));
@@ -142,6 +154,11 @@ fn parseArgs(args: std.process.Args) void {
             const value = it.next() orelse fail("--scale needs a number");
             scale = std.fmt.parseInt(u32, value, 10) catch fail("--scale needs a number");
             if (scale < 1 or scale > max_scale) fail("--scale must be between 1 and 12");
+        } else if (std.mem.eql(u8, arg, "--top")) {
+            const value = it.next() orelse fail("--top needs a number");
+            top = std.fmt.parseInt(u32, value, 10) catch fail("--top needs a number");
+        } else if (std.mem.eql(u8, arg, "--mute")) {
+            mute = true;
         } else {
             fail(arg);
         }
@@ -154,20 +171,79 @@ fn fail(msg: []const u8) noreturn {
     std.process.exit(2);
 }
 
-/// Expand the 16x16 frame into the window buffer, mirrored when facing left.
-fn render(dst: [*]u32, frame: *const sprites.Frame, facing: petmod.Facing, argb: bool) void {
+/// Expand the 16x16 frame into the window buffer with the requested orientation.
+fn render(dst: [*]u32, frame: *const sprites.Frame, transform: petmod.Transform, argb: bool) void {
     const bg: u32 = if (argb) 0 else 0xFF1E1E1E;
     for (0..size) |y| {
-        const sy: i32 = @as(i32, @intCast(y / scale)) + frame.dy;
         for (0..size) |x| {
-            const sx_raw = x / scale;
-            const sx = if (facing == .right) sx_raw else sprites.W - 1 - sx_raw;
+            const dx: i32 = @intCast(x / scale);
+            const dy: i32 = @intCast(y / scale);
+            const src = sprites.source(transform, dx, dy);
+            const sx: i32 = src.x;
+            var sy: i32 = src.y;
+            sy += frame.dy;
             var px: u32 = 0;
-            if (sy >= 0 and sy < sprites.H) px = frame.px[@intCast(sy)][sx];
+            if (sy >= 0 and sy < sprites.H) px = frame.px[@intCast(sy)][@intCast(sx)];
             dst[y * size + x] = if (px >> 24 == 0) bg else px;
         }
     }
 }
+
+/// Plays the cat's sounds through whatever command-line player is installed.
+/// The clips are embedded in the binary and written to the runtime dir once.
+const Audio = struct {
+    enabled: bool,
+    dir: [256:0]u8 = undefined,
+    dir_len: usize = 0,
+    player: []const u8 = "",
+
+    const clips = [_]struct { name: []const u8, data: []const u8 }{
+        .{ .name = "meow", .data = @embedFile("assets/meow.wav") },
+        .{ .name = "purr", .data = @embedFile("assets/purr.wav") },
+        .{ .name = "hiss", .data = @embedFile("assets/hiss.wav") },
+    };
+    /// Tried in order; the first one found on PATH wins.
+    const players = [_][]const u8{ "pw-play", "paplay", "aplay", "ffplay -nodisp -autoexit -loglevel quiet" };
+
+    fn init(enabled: bool) Audio {
+        var a: Audio = .{ .enabled = enabled };
+        if (!enabled) return a;
+
+        a.player = for (players) |p| {
+            var probe: [128:0]u8 = undefined;
+            const exe = std.mem.sliceTo(p, ' ');
+            const cmd = std.mem.printSentinel(&probe, "command -v {s} >/dev/null 2>&1", .{exe}, 0) catch continue;
+            if (c.system(cmd.ptr) == 0) break p;
+        } else {
+            std.debug.print("pet: no audio player found (tried pw-play, paplay, aplay, ffplay); running silent\n", .{});
+            a.enabled = false;
+            return a;
+        };
+
+        const base: []const u8 = if (c.getenv("XDG_RUNTIME_DIR")) |d| std.mem.span(d) else "/tmp";
+        const dir = std.mem.printSentinel(&a.dir, "{s}/pet-sounds", .{base}, 0) catch {
+            a.enabled = false;
+            return a;
+        };
+        a.dir_len = dir.len;
+        _ = c.mkdir(dir.ptr, 0o700);
+        for (clips) |clip| {
+            var path: [300:0]u8 = undefined;
+            const p = std.mem.printSentinel(&path, "{s}/{s}.wav", .{ dir, clip.name }, 0) catch continue;
+            const f = c.fopen(p.ptr, "wb") orelse continue;
+            _ = c.fwrite(clip.data.ptr, 1, clip.data.len, f);
+            _ = c.fclose(f);
+        }
+        return a;
+    }
+
+    fn play(self: *const Audio, snd: petmod.Sound) void {
+        if (!self.enabled) return;
+        var cmd: [512:0]u8 = undefined;
+        const line = std.mem.printSentinel(&cmd, "{s} '{s}/{s}.wav' >/dev/null 2>&1 &", .{ self.player, self.dir[0..self.dir_len], @tagName(snd) }, 0) catch return;
+        _ = c.system(line.ptr);
+    }
+};
 
 /// Build horizontal runs of opaque pixels so only the cat itself is clickable.
 fn applyInputShape(win: *const x11.Window) void {

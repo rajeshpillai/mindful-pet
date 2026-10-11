@@ -16,6 +16,24 @@ pub const Frame = struct {
     dy: i8 = 0,
 };
 
+/// How a right-facing, upright frame is oriented on screen.
+pub const Transform = enum { none, flip_h, flip_v, rot180, wall_left, wall_right };
+
+/// For destination pixel (dx, dy) in 16x16 space, the source pixel to sample.
+pub fn source(t: Transform, dx: i32, dy: i32) struct { x: i32, y: i32 } {
+    const n: i32 = W - 1;
+    return switch (t) {
+        .none => .{ .x = dx, .y = dy },
+        .flip_h => .{ .x = n - dx, .y = dy },
+        .flip_v => .{ .x = dx, .y = n - dy },
+        .rot180 => .{ .x = n - dx, .y = n - dy },
+        // Head up, feet toward the wall on the right.
+        .wall_right => .{ .x = n - dy, .y = dx },
+        // Head up, feet toward the wall on the left.
+        .wall_left => .{ .x = n - dy, .y = n - dx },
+    };
+}
+
 fn color(ch: u8) Pixel {
     return switch (ch) {
         '.' => 0x00000000,
@@ -382,6 +400,46 @@ pub const work = [_]Frame{
         "...kkoooooooook.",
         "....kooook.k....",
         "....kkkkkkkkk...",
+        "................",
+    }, 0),
+};
+
+/// Batting at the cursor: front paw lifts, then swipes forward.
+pub const bat = [_]Frame{
+    parse(.{
+        "................",
+        "..........k..k..",
+        "..........kokok.",
+        "..........kooook",
+        "..k.......koeook",
+        "..ko......kooook",
+        "..ko...kkkkoopk.",
+        "...kk.koooooook.",
+        "....kkooodooook.",
+        "....kooodooook..",
+        "....kooooooook..",
+        "....kkkkkkkkkko.",
+        ".....ko.......k.",
+        ".....ko.........",
+        ".....kk.........",
+        "................",
+    }, 0),
+    parse(.{
+        "................",
+        "..........k..k..",
+        "..........kokok.",
+        "..........kooook",
+        "..k.......koeook",
+        "..ko......kooook",
+        "..ko...kkkkoopk.",
+        "...kk.koooooook.",
+        "....kkooodooook.",
+        "....kooodooook..",
+        "....kooooooookko",
+        "....kkkkkkkkkk..",
+        ".....ko.........",
+        ".....ko.........",
+        ".....kk.........",
         "................",
     }, 0),
 };

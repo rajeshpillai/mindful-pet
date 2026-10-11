@@ -81,6 +81,7 @@ pub fn parse(raw: []const u8) ?Command {
     if (eq(u8, line, "meow") or eq(u8, line, "alert") or eq(u8, line, "poke")) return .{ .pet = .alert };
     if (eq(u8, line, "work") or eq(u8, line, "busy")) return .{ .pet = .work };
     if (eq(u8, line, "done") or eq(u8, line, "idle")) return .{ .pet = .done };
+    if (eq(u8, line, "climb")) return .{ .pet = .climb };
     if (eq(u8, line, "quit") or eq(u8, line, "exit")) return .quit;
     if (std.mem.startsWith(u8, line, "goto ")) {
         const x = std.fmt.parseFloat(f32, std.mem.trim(u8, line[5..], " ")) catch return null;
