@@ -5,6 +5,7 @@
 const std = @import("std");
 const c = @import("c");
 const sprites = @import("sprites");
+const font = @import("font");
 
 const scale = 4;
 const cell = sprites.W * scale;
@@ -32,8 +33,10 @@ pub fn main(init: std.process.Init) !void {
     const transforms = [_]sprites.Transform{ .none, .flip_h, .flip_v, .rot180, .wall_left, .wall_right };
     var max_frames: usize = transforms.len;
     for (rows) |r| max_frames = @max(max_frames, r.frames.len);
-    const width = max_frames * (cell + gap) + gap;
-    const height = (rows.len + 1) * (cell + gap) + gap;
+    const sample = "Hello world 0123 ok?!";
+    const bubble = font.Layout.forChars(sample.len, 2);
+    const width = @max(max_frames * (cell + gap) + gap, bubble.w + 2 * gap);
+    const height = (rows.len + 1) * (cell + gap) + gap + bubble.h + gap;
 
     const buf = try init.gpa.alloc(u8, width * height * 3);
     defer init.gpa.free(buf);
@@ -70,6 +73,23 @@ pub fn main(init: std.process.Init) !void {
             const px = sprites.idle[0].px[@intCast(src.y)][@intCast(src.x)];
             if (px >> 24 == 0) continue;
             const i = ((oy + y) * width + (ox + x)) * 3;
+            buf[i] = @truncate(px >> 16);
+            buf[i + 1] = @truncate(px >> 8);
+            buf[i + 2] = @truncate(px);
+        };
+    }
+
+    // Speech bubble sample at the bottom.
+    {
+        const tmp = try init.gpa.alloc(u32, @as(usize, bubble.w) * bubble.h);
+        defer init.gpa.free(tmp);
+        @memset(tmp, 0);
+        font.drawBubble(tmp.ptr, bubble.w, bubble, sample);
+        const oy = (rows.len + 1) * (cell + gap) + gap;
+        for (0..bubble.h) |y| for (0..bubble.w) |x| {
+            const px = tmp[y * bubble.w + x];
+            if (px >> 24 == 0) continue;
+            const i = ((oy + y) * width + (gap + x)) * 3;
             buf[i] = @truncate(px >> 16);
             buf[i + 1] = @truncate(px >> 8);
             buf[i + 2] = @truncate(px);

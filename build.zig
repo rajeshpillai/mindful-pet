@@ -46,6 +46,7 @@ pub fn build(b: *std.Build) void {
             .imports = &.{
                 .{ .name = "c", .module = translate.createModule() },
                 .{ .name = "sprites", .module = b.createModule(.{ .root_source_file = b.path("src/sprites.zig"), .target = target, .optimize = optimize }) },
+                .{ .name = "font", .module = b.createModule(.{ .root_source_file = b.path("src/font.zig"), .target = target, .optimize = optimize }) },
             },
         }),
     });

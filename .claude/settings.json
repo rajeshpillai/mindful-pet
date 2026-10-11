@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/petctl meow",
+            "command": "msg=$(jq -r '.message // empty' 2>/dev/null); \"$CLAUDE_PROJECT_DIR\"/scripts/petctl meow; [ -n \"$msg\" ] && \"$CLAUDE_PROJECT_DIR\"/scripts/petctl say \"$msg\"; true",
             "timeout": 5
           }
         ]

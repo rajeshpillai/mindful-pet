@@ -80,6 +80,12 @@ pub const Pet = struct {
     bat_cooldown: f32 = 0,
     /// Sound requested since the last `takeSound`.
     sound: ?Sound = null,
+    /// Current speech-bubble text and how long it stays up.
+    say_buf: [max_say]u8 = undefined,
+    say_len: usize = 0,
+    say_left: f32 = 0,
+
+    pub const max_say = 40;
 
     const walk_speed: f32 = 55;
     const run_speed: f32 = 230;
@@ -150,6 +156,20 @@ pub const Pet = struct {
         self.enter(.walk, forever);
     }
 
+    /// Show `text` in a bubble; longer texts are cut to `max_say` characters.
+    pub fn say(self: *Pet, text: []const u8) void {
+        const n = @min(text.len, max_say);
+        @memcpy(self.say_buf[0..n], text[0..n]);
+        self.say_len = n;
+        self.say_left = 2.5 + 0.12 * @as(f32, @floatFromInt(n));
+        self.idle_for = 0;
+    }
+
+    /// The text to show right now, or null when the bubble is down.
+    pub fn bubble(self: *const Pet) ?[]const u8 {
+        return if (self.say_left > 0) self.say_buf[0..self.say_len] else null;
+    }
+
     /// Returns and clears the pending sound.
     pub fn takeSound(self: *Pet) ?Sound {
         defer self.sound = null;
@@ -161,6 +181,7 @@ pub const Pet = struct {
         self.anim_time += dt;
         self.idle_for += dt;
         if (self.bat_cooldown > 0) self.bat_cooldown -= dt;
+        if (self.say_left > 0) self.say_left -= dt;
 
         const floor = self.floorY();
         const cx = self.x + self.size / 2;
@@ -469,6 +490,21 @@ test "climb goes to the wall, up to the ceiling, and ends back on the floor" {
     try std.testing.expect(seen_climb);
     try std.testing.expect(seen_top);
     try std.testing.expectEqual(pet.floorY(), pet.y);
+}
+
+test "say shows a bubble that times out and is cut to max_say" {
+    var prng = std.Random.DefaultPrng.init(9);
+    var pet = Pet.init(prng.random(), 1920, 1080, 64, 32);
+    try std.testing.expect(pet.bubble() == null);
+    pet.say("hello");
+    try std.testing.expectEqualStrings("hello", pet.bubble().?);
+    run(&pet, 2, still);
+    try std.testing.expect(pet.bubble() != null);
+    run(&pet, 2, still);
+    try std.testing.expect(pet.bubble() == null);
+    var big: [60]u8 = @splat('a');
+    pet.say(&big);
+    try std.testing.expectEqual(@as(usize, Pet.max_say), pet.bubble().?.len);
 }
 
 test "pointer resting on the cat makes it bat, once per cooldown" {

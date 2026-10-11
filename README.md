@@ -63,6 +63,9 @@ hangs upside down from the top edge, walks along it, and drops. After about
 45 seconds with nothing happening nearby it falls asleep. Moving the pointer
 close to it wakes it up.
 
+Speech: `petctl say "tests green"` puts a bubble over its head for a few
+seconds. Scripts can use it as a one-line status display.
+
 Sounds: a meow when clicked or poked, a purr on `ok`, a hiss on `fail`. The
 clips are synthesized by `tools/gen_sounds.py` and embedded in the binary;
 drop real recordings into `src/assets/` and rebuild to replace them. Pass
@@ -80,6 +83,7 @@ command per line:
 | `work`, `busy` | Sits and types until `ok`, `fail` or `done` arrives (gives up after 15 min). Ignores the pointer meanwhile. |
 | `done`, `idle` | Ends `work` without a verdict. |
 | `climb` | Walk to the nearest screen edge and climb it. |
+| `say TEXT` | Show TEXT in a speech bubble for a few seconds (up to 40 characters, uppercase font). |
 | `sleep` | Curls up until woken. |
 | `wake` | Wakes a sleeping cat. |
 | `meow`, `alert`, `poke` | Startle it. |
@@ -113,7 +117,8 @@ is not running are dropped: the pet removes its pipe on exit.
 
 `.claude/settings.json` in this repo wires three hooks: when you submit a
 prompt the cat starts typing, when the turn ends it purrs, and when Claude
-needs your attention (a permission prompt) it meows. They call
+needs your attention (a permission prompt) it meows and shows the
+notification text in a speech bubble. They call
 `scripts/petctl`, so nothing happens if the cat is not running. To get the
 same in another project, copy that file or merge the `hooks` block into its
 `.claude/settings.json`.
@@ -136,6 +141,7 @@ src/pet.zig      the state machine (idle, walk, run, sit, sleep, alert, happy, a
 src/sprites.zig  16x16 frames drawn as ASCII art, expanded at comptime
 src/x11.zig      transparent override-redirect window, XImage blit, XFixes input shape
 src/events.zig   named-pipe command reader and parser
+src/font.zig     3x5 bitmap font and the speech-bubble renderer
 src/c.h          the C headers translated by build.zig (Xlib, XFixes, libc bits)
 src/assets/      meow/purr/hiss WAVs, embedded at build time
 tools/gen_sounds.py  regenerates those clips (stdlib Python)

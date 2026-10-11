@@ -4,6 +4,7 @@ const x11 = @import("x11.zig");
 const petmod = @import("pet.zig");
 const sprites = @import("sprites.zig");
 const events = @import("events.zig");
+const font = @import("font.zig");
 
 const default_scale: u32 = 4;
 const max_scale: u32 = 12;
@@ -29,15 +30,28 @@ const usage =
     \\  -h, --help  show this help
     \\
     \\Mouse:  left-click = meow, drag = carry (it falls when dropped), rest the pointer on it = paw swipe, right-click = quit
-    \\Pipe:   echo fail > $XDG_RUNTIME_DIR/pet.fifo   (ok, fail, work, done, climb, sleep, wake, meow, goto X, quit)
+    \\Pipe:   echo fail > $XDG_RUNTIME_DIR/pet.fifo   (ok, fail, work, done, climb, sleep, wake, meow, say TEXT, goto X, quit)
     \\
 ;
 
 pub fn main(init: std.process.Init) !void {
     parseArgs(init.minimal.args);
 
-    var win = try x11.Window.init(size);
+    var win = try x11.Window.init(size, size);
     defer win.deinit();
+    win.show();
+
+    // The speech bubble is a second, fully click-through window sized for the
+    // longest message; only the part a message needs gets painted.
+    const text_scale: u32 = @max(1, scale / 2);
+    const bubble_max = font.Layout.forChars(petmod.Pet.max_say, text_scale);
+    var bubble_win = try x11.Window.init(bubble_max.w, bubble_max.h);
+    defer bubble_win.deinit();
+    bubble_win.setInputShape(&.{});
+    var bubble_shown = false;
+    var bubble_text: [petmod.Pet.max_say]u8 = undefined;
+    var bubble_len: usize = 0;
+    var bubble_layout = bubble_max;
 
     var fifo: ?events.Fifo = events.Fifo.open() catch |err| blk: {
         std.debug.print("pet: no command fifo ({s})\n", .{@errorName(err)});
@@ -67,6 +81,7 @@ pub fn main(init: std.process.Init) !void {
     var last_transform = pet.transform();
     var raise_timer: f32 = 0;
     const debug_events = c.getenv("PET_DEBUG") != null;
+    var bubble_logged = false;
 
     while (true) {
         var fds = [_]c.pollfd{
@@ -113,6 +128,7 @@ pub fn main(init: std.process.Init) !void {
         if (fifo) |*f| while (f.pollCommand()) |cmd| switch (cmd) {
             .pet => |e| pet.onEvent(e),
             .goto => |x| pet.goTo(x),
+            .say => |text| pet.say(text),
             .quit => return,
         };
 
@@ -134,12 +150,46 @@ pub fn main(init: std.process.Init) !void {
         }
         win.move(@intFromFloat(pet.x), @intFromFloat(pet.y));
 
+        if (pet.bubble()) |text| {
+            if (!bubble_shown or !std.mem.eql(u8, text, bubble_text[0..bubble_len])) {
+                @memcpy(bubble_text[0..text.len], text);
+                bubble_len = text.len;
+                bubble_layout = font.Layout.forChars(text.len, text_scale);
+                @memset(bubble_win.pixels[0 .. bubble_win.w * bubble_win.h], if (bubble_win.argb) 0 else 0xFF1E1E1E);
+                font.drawBubble(bubble_win.pixels, bubble_win.w, bubble_layout, text);
+                bubble_win.present();
+                if (!bubble_shown) bubble_win.show();
+                bubble_shown = true;
+            }
+            // Centre the painted part over the cat; below it when it hangs from the top.
+            const bw: i32 = @intCast(bubble_layout.w);
+            const bh: i32 = @intCast(bubble_layout.h);
+            const cat_x: i32 = @intFromFloat(pet.x);
+            const cat_y: i32 = @intFromFloat(pet.y);
+            const half: i32 = @intCast(size / 2);
+            const bx = std.math.clamp(cat_x + half - @divTrunc(bw, 2), 0, win.screen_w - bw);
+            const above = cat_y - bh - 2;
+            const by = if (above >= 0) above else cat_y + @as(i32, @intCast(size)) + 2;
+            bubble_win.move(bx, by);
+            if (debug_events and !bubble_logged) {
+                std.debug.print("pet: bubble '{s}' {d}x{d} at {d},{d}\n", .{ text, bw, bh, bx, by });
+                bubble_logged = true;
+            }
+        } else if (bubble_shown) {
+            bubble_win.hide();
+            bubble_shown = false;
+            bubble_logged = false;
+        }
+
         raise_timer += dt;
         if (raise_timer > 1.0) {
             win.raise();
+            if (bubble_shown) bubble_win.raise();
             raise_timer = 0;
         }
         win.flush();
+        // The bubble has its own X connection, so it needs its own flush.
+        bubble_win.flush();
     }
 }
 

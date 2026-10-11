@@ -1,7 +1,7 @@
 .{
     .name = .mindful_pet,
     .version = "0.1.0",
-    .fingerprint = 0xf3231caea0263c0d, // Changing this has security and trust implications.
+    .fingerprint = 0x7a03939c7a4587f5, // Changing this has security and trust implications.
     .minimum_zig_version = "0.17.0-dev.2056+79a9897cd",
     .dependencies = .{},
     .paths = .{

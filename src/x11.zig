@@ -23,15 +23,16 @@ pub const Window = struct {
     win: c.Window,
     gc: c.GC,
     img: [*c]c.XImage,
-    /// Backing store of `img`, size*size ARGB pixels.
+    /// Backing store of `img`, w*h ARGB pixels.
     pixels: [*]u32,
-    size: u32,
+    w: u32,
+    h: u32,
     /// True when a 32-bit visual was found, so alpha 0 really is see-through.
     argb: bool,
     screen_w: i32,
     screen_h: i32,
 
-    pub fn init(size: u32) Error!Window {
+    pub fn init(w: u32, h: u32) Error!Window {
         const dpy = c.XOpenDisplay(null) orelse return error.NoDisplay;
         const screen = c.XDefaultScreen(dpy);
         const root = c.XRootWindow(dpy, screen);
@@ -51,17 +52,16 @@ pub const Window = struct {
         attrs.event_mask = c.ButtonPressMask | c.ButtonReleaseMask | c.ButtonMotionMask | c.ExposureMask;
         const mask: c_ulong = @intCast(c.CWColormap | c.CWBorderPixel | c.CWBackPixel | c.CWOverrideRedirect | c.CWEventMask);
 
-        const win = c.XCreateWindow(dpy, root, 0, 0, size, size, 0, vinfo.depth, c.InputOutput, vinfo.visual, mask, &attrs);
+        const win = c.XCreateWindow(dpy, root, 0, 0, w, h, 0, vinfo.depth, c.InputOutput, vinfo.visual, mask, &attrs);
         _ = c.XStoreName(dpy, win, "pet");
 
-        const bytes: usize = @as(usize, size) * size * 4;
+        const bytes: usize = @as(usize, w) * h * 4;
         const data = c.malloc(bytes) orelse return error.OutOfMemory;
-        const img = c.XCreateImage(dpy, vinfo.visual, @intCast(vinfo.depth), c.ZPixmap, 0, @ptrCast(data), size, size, 32, @intCast(size * 4));
+        const img = c.XCreateImage(dpy, vinfo.visual, @intCast(vinfo.depth), c.ZPixmap, 0, @ptrCast(data), w, h, 32, @intCast(w * 4));
         if (img == null) return error.NoImage;
         img.*.byte_order = c.LSBFirst;
 
         const gc = c.XCreateGC(dpy, win, 0, null);
-        _ = c.XMapRaised(dpy, win);
 
         return .{
             .dpy = dpy,
@@ -71,7 +71,8 @@ pub const Window = struct {
             .gc = gc,
             .img = img,
             .pixels = @ptrCast(@alignCast(data)),
-            .size = size,
+            .w = w,
+            .h = h,
             .argb = argb,
             .screen_w = c.XDisplayWidth(dpy, screen),
             .screen_h = c.XDisplayHeight(dpy, screen),
@@ -90,6 +91,14 @@ pub const Window = struct {
         return c.XConnectionNumber(self.dpy);
     }
 
+    pub fn show(self: *const Window) void {
+        _ = c.XMapRaised(self.dpy, self.win);
+    }
+
+    pub fn hide(self: *const Window) void {
+        _ = c.XUnmapWindow(self.dpy, self.win);
+    }
+
     pub fn move(self: *const Window, x: i32, y: i32) void {
         _ = c.XMoveWindow(self.dpy, self.win, x, y);
     }
@@ -100,16 +109,19 @@ pub const Window = struct {
 
     /// Blit the whole pixel buffer to the window.
     pub fn present(self: *const Window) void {
-        _ = c.XPutImage(self.dpy, self.win, self.gc, self.img, 0, 0, 0, 0, self.size, self.size);
+        _ = c.XPutImage(self.dpy, self.win, self.gc, self.img, 0, 0, 0, 0, self.w, self.h);
     }
 
     pub fn flush(self: *const Window) void {
         _ = c.XFlush(self.dpy);
     }
 
-    /// Only these rectangles receive mouse input; everything else clicks through.
+    /// Only these rectangles receive mouse input; everything else clicks
+    /// through. An empty slice makes the whole window click-through.
     pub fn setInputShape(self: *const Window, rects: []const c.XRectangle) void {
-        const region = c.XFixesCreateRegion(self.dpy, @constCast(rects.ptr), @intCast(rects.len));
+        var none: [1]c.XRectangle = undefined;
+        const ptr: [*c]c.XRectangle = if (rects.len == 0) &none else @constCast(rects.ptr);
+        const region = c.XFixesCreateRegion(self.dpy, ptr, @intCast(rects.len));
         c.XFixesSetWindowShapeRegion(self.dpy, self.win, c.ShapeInput, 0, 0, region);
         c.XFixesDestroyRegion(self.dpy, region);
     }
