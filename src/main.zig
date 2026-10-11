@@ -18,13 +18,19 @@ var size: u32 = sprites.W * default_scale;
 /// Pixels reserved at the top of the screen (GNOME's bar) that the cat hangs below.
 var top: u32 = default_top;
 var mute: bool = false;
+var character: *const sprites.Character = &sprites.cat;
+/// Instance name: selects pet-NAME.fifo so several pets can run at once.
+var instance: ?[]const u8 = null;
 
 const usage =
-    \\usage: pet [--scale N] [--top N] [--mute] [--help]
+    \\usage: pet [--pet cat|dog|rabbit] [--name NAME] [--scale N] [--top N] [--mute] [--help]
     \\
-    \\A cat that lives on the edges of your screen.
+    \\A small animal that lives on the edges of your screen.
     \\
-    \\  --scale N   pixel zoom of the 16x16 art, 1..12 (default 4 = 64px cat)
+    \\  --pet KIND  which animal: cat (default), dog or rabbit
+    \\  --name NAME run as a named instance listening on pet-NAME.fifo, so you can
+    \\              run several at once and address each with petctl -n NAME
+    \\  --scale N   pixel zoom of the 16x16 art, 1..12 (default 4 = 64px)
     \\  --top N     pixels reserved for the top panel; the cat hangs below it (default 32)
     \\  --mute      no sounds
     \\  -h, --help  show this help
@@ -53,7 +59,7 @@ pub fn main(init: std.process.Init) !void {
     var bubble_len: usize = 0;
     var bubble_layout = bubble_max;
 
-    var fifo: ?events.Fifo = events.Fifo.open() catch |err| blk: {
+    var fifo: ?events.Fifo = events.Fifo.open(instance) catch |err| blk: {
         std.debug.print("pet: no command fifo ({s})\n", .{@errorName(err)});
         break :blk null;
     };
@@ -62,6 +68,7 @@ pub fn main(init: std.process.Init) !void {
     var prng = std.Random.DefaultPrng.init(@intCast(nowNs()));
     var pet = petmod.Pet.init(
         prng.random(),
+        character,
         @floatFromInt(win.screen_w),
         @floatFromInt(win.screen_h),
         @floatFromInt(size),
@@ -69,6 +76,8 @@ pub fn main(init: std.process.Init) !void {
     );
 
     var audio = Audio.init(!mute);
+
+    std.debug.print("pet: a {s}{s}{s}\n", .{ character.name, if (instance != null) " named " else "", instance orelse "" });
 
     std.debug.print("pet: {d}x{d} screen, {s} window\n", .{ win.screen_w, win.screen_h, if (win.argb) "transparent" else "opaque (no ARGB visual)" });
     if (fifo) |f| std.debug.print("pet: commands via  echo fail > {s}\n", .{f.path()});
@@ -137,7 +146,14 @@ pub fn main(init: std.process.Init) !void {
         last_ms = now;
         pet.update(dt, input);
 
-        if (pet.takeSound()) |snd| audio.play(snd);
+        if (pet.takeSound()) |snd| {
+            const clip = switch (snd) {
+                .poke => character.sound_poke,
+                .happy => character.sound_happy,
+                .angry => character.sound_angry,
+            };
+            if (clip) |name| audio.play(name);
+        }
 
         const frame = pet.frame();
         const transform = pet.transform();
@@ -209,6 +225,14 @@ fn parseArgs(args: std.process.Args) void {
             top = std.fmt.parseInt(u32, value, 10) catch fail("--top needs a number");
         } else if (std.mem.eql(u8, arg, "--mute")) {
             mute = true;
+        } else if (std.mem.eql(u8, arg, "--pet")) {
+            const value = it.next() orelse fail("--pet needs cat, dog or rabbit");
+            character = sprites.byName(value) orelse fail("--pet needs cat, dog or rabbit");
+        } else if (std.mem.eql(u8, arg, "--name")) {
+            const value = it.next() orelse fail("--name needs a name");
+            if (value.len == 0 or value.len > 32) fail("--name must be 1..32 characters");
+            for (value) |ch| if (!std.ascii.isAlphanumeric(ch) and ch != '-' and ch != '_') fail("--name may only use letters, digits, - and _");
+            instance = value;
         } else {
             fail(arg);
         }
@@ -251,6 +275,11 @@ const Audio = struct {
         .{ .name = "meow", .data = @embedFile("assets/meow.wav") },
         .{ .name = "purr", .data = @embedFile("assets/purr.wav") },
         .{ .name = "hiss", .data = @embedFile("assets/hiss.wav") },
+        .{ .name = "woof", .data = @embedFile("assets/woof.wav") },
+        .{ .name = "pant", .data = @embedFile("assets/pant.wav") },
+        .{ .name = "growl", .data = @embedFile("assets/growl.wav") },
+        .{ .name = "squeak", .data = @embedFile("assets/squeak.wav") },
+        .{ .name = "thump", .data = @embedFile("assets/thump.wav") },
     };
     /// Tried in order; the first one found on PATH wins.
     const players = [_][]const u8{ "pw-play", "paplay", "aplay", "ffplay -nodisp -autoexit -loglevel quiet" };
@@ -287,10 +316,10 @@ const Audio = struct {
         return a;
     }
 
-    fn play(self: *const Audio, snd: petmod.Sound) void {
+    fn play(self: *const Audio, clip: []const u8) void {
         if (!self.enabled) return;
         var cmd: [512:0]u8 = undefined;
-        const line = std.mem.printSentinel(&cmd, "{s} '{s}/{s}.wav' >/dev/null 2>&1 &", .{ self.player, self.dir[0..self.dir_len], @tagName(snd) }, 0) catch return;
+        const line = std.mem.printSentinel(&cmd, "{s} '{s}/{s}.wav' >/dev/null 2>&1 &", .{ self.player, self.dir[0..self.dir_len], clip }, 0) catch return;
         _ = c.system(line.ptr);
     }
 };

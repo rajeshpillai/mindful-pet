@@ -32,7 +32,8 @@ pub const State = enum {
 /// Things the outside world can tell the cat.
 pub const Event = enum { build_ok, build_fail, sleep, wake, alert, work, done, climb };
 
-pub const Sound = enum { meow, purr, hiss };
+/// Which reaction's clip to play; the character decides the actual sound.
+pub const Sound = enum { poke, happy, angry };
 
 /// How the renderer should orient the (right-facing) source frame.
 pub const Transform = sprites.Transform;
@@ -59,6 +60,7 @@ pub const Pet = struct {
     /// The "ceiling": lowest y the cat hangs at (below the GNOME top bar).
     top: f32,
     rand: std.Random,
+    chr: *const sprites.Character,
 
     facing: Facing = .right,
     wall: Wall = .right,
@@ -96,7 +98,7 @@ pub const Pet = struct {
     const work_timeout: f32 = 15 * 60;
     const forever: f32 = 1e9;
 
-    pub fn init(rand: std.Random, screen_w: f32, screen_h: f32, size: f32, top: f32) Pet {
+    pub fn init(rand: std.Random, chr: *const sprites.Character, screen_w: f32, screen_h: f32, size: f32, top: f32) Pet {
         var p: Pet = .{
             .x = 0,
             .y = 0,
@@ -105,6 +107,7 @@ pub const Pet = struct {
             .screen_h = screen_h,
             .top = top,
             .rand = rand,
+            .chr = chr,
         };
         p.y = p.floorY();
         p.x = p.randRange(size, screen_w - 2 * size);
@@ -121,11 +124,11 @@ pub const Pet = struct {
         if (self.state == .held or self.state == .fall) return;
         switch (ev) {
             .build_ok => {
-                self.sound = .purr;
+                self.sound = .happy;
                 self.enter(.happy, 2.5);
             },
             .build_fail => {
-                self.sound = .hiss;
+                self.sound = .angry;
                 self.enter(.angry, 2.5);
             },
             .sleep => self.enter(.sleep, forever),
@@ -314,20 +317,21 @@ pub const Pet = struct {
 
     pub fn frame(self: *const Pet) *const sprites.Frame {
         const t = self.anim_time;
+        const ch = self.chr;
         return switch (self.state) {
-            .idle => &sprites.idle[cycle(t, 0.7, sprites.idle.len)],
-            .walk, .hang => &sprites.walk[cycle(t, 0.12, sprites.walk.len)],
-            .run => &sprites.walk[cycle(t, 0.06, sprites.walk.len)],
-            .climb => &sprites.walk[cycle(t, 0.15, sprites.walk.len)],
-            .cling => &sprites.idle[0],
-            .sit => &sprites.sit[if (@mod(t, 4.0) > 3.8) 1 else 0],
-            .sleep => &sprites.sleep[cycle(t, 0.9, sprites.sleep.len)],
-            .alert => &sprites.alert[0],
-            .happy => &sprites.happy[cycle(t, 0.4, sprites.happy.len)],
-            .angry => &sprites.angry[cycle(t, 0.15, sprites.angry.len)],
-            .work => &sprites.work[cycle(t, 0.2, sprites.work.len)],
-            .bat => &sprites.bat[cycle(t, 0.35, sprites.bat.len)],
-            .held, .fall => &sprites.held[0],
+            .idle => &ch.idle[cycle(t, 0.7, ch.idle.len)],
+            .walk, .hang => &ch.walk[cycle(t, 0.12, ch.walk.len)],
+            .run => &ch.walk[cycle(t, 0.06, ch.walk.len)],
+            .climb => &ch.walk[cycle(t, 0.15, ch.walk.len)],
+            .cling => &ch.idle[0],
+            .sit => &ch.sit[if (@mod(t, 4.0) > 3.8) ch.sit.len - 1 else 0],
+            .sleep => &ch.sleep[cycle(t, 0.9, ch.sleep.len)],
+            .alert => &ch.alert[0],
+            .happy => &ch.happy[cycle(t, 0.4, ch.happy.len)],
+            .angry => &ch.angry[cycle(t, 0.15, ch.angry.len)],
+            .work => &ch.work[cycle(t, 0.2, ch.work.len)],
+            .bat => &ch.bat[cycle(t, 0.35, ch.bat.len)],
+            .held, .fall => &ch.held[0],
         };
     }
 
@@ -355,7 +359,7 @@ pub const Pet = struct {
     fn meow(self: *Pet) void {
         if (self.state == .held or self.state == .fall) return;
         std.debug.print("meow!\n", .{});
-        self.sound = .meow;
+        self.sound = .poke;
         self.idle_for = 0;
         // Stay on the job: a poke while working is a glance up, not a break.
         if (self.state == .work) {
@@ -435,7 +439,7 @@ fn run(pet: *Pet, seconds: f32, in: Input) void {
 
 test "cat walks to a target and arrives" {
     var prng = std.Random.DefaultPrng.init(1);
-    var pet = Pet.init(prng.random(), 1920, 1080, 64, 32);
+    var pet = Pet.init(prng.random(), &sprites.cat, 1920, 1080, 64, 32);
     pet.goTo(1000);
     var i: usize = 0;
     while (pet.state == .walk and i < 60 * 60) : (i += 1) pet.update(1.0 / 60.0, still);
@@ -445,7 +449,7 @@ test "cat walks to a target and arrives" {
 
 test "work lasts until a result arrives and ignores the pointer" {
     var prng = std.Random.DefaultPrng.init(3);
-    var pet = Pet.init(prng.random(), 1920, 1080, 64, 32);
+    var pet = Pet.init(prng.random(), &sprites.cat, 1920, 1080, 64, 32);
     pet.onEvent(.work);
     try std.testing.expectEqual(State.work, pet.state);
     const nearby: Input = .{ .pointer_x = pet.x + 150, .pointer_y = pet.y, .pointer_moved = true };
@@ -453,13 +457,13 @@ test "work lasts until a result arrives and ignores the pointer" {
     try std.testing.expectEqual(State.work, pet.state);
     pet.onEvent(.build_ok);
     try std.testing.expectEqual(State.happy, pet.state);
-    try std.testing.expectEqual(Sound.purr, pet.takeSound().?);
+    try std.testing.expectEqual(Sound.happy, pet.takeSound().?);
     try std.testing.expect(pet.takeSound() == null);
 }
 
 test "build failure makes the cat angry, then it sits" {
     var prng = std.Random.DefaultPrng.init(2);
-    var pet = Pet.init(prng.random(), 1920, 1080, 64, 32);
+    var pet = Pet.init(prng.random(), &sprites.cat, 1920, 1080, 64, 32);
     pet.onEvent(.build_fail);
     try std.testing.expectEqual(State.angry, pet.state);
     pet.update(3.0, still);
@@ -468,7 +472,7 @@ test "build failure makes the cat angry, then it sits" {
 
 test "climb goes to the wall, up to the ceiling, and ends back on the floor" {
     var prng = std.Random.DefaultPrng.init(5);
-    var pet = Pet.init(prng.random(), 1920, 1080, 64, 32);
+    var pet = Pet.init(prng.random(), &sprites.cat, 1920, 1080, 64, 32);
     pet.x = 300; // nearer the left edge
     pet.onEvent(.climb);
     try std.testing.expectEqual(State.walk, pet.state);
@@ -494,7 +498,7 @@ test "climb goes to the wall, up to the ceiling, and ends back on the floor" {
 
 test "say shows a bubble that times out and is cut to max_say" {
     var prng = std.Random.DefaultPrng.init(9);
-    var pet = Pet.init(prng.random(), 1920, 1080, 64, 32);
+    var pet = Pet.init(prng.random(), &sprites.cat, 1920, 1080, 64, 32);
     try std.testing.expect(pet.bubble() == null);
     pet.say("hello");
     try std.testing.expectEqualStrings("hello", pet.bubble().?);
@@ -509,7 +513,7 @@ test "say shows a bubble that times out and is cut to max_say" {
 
 test "pointer resting on the cat makes it bat, once per cooldown" {
     var prng = std.Random.DefaultPrng.init(8);
-    var pet = Pet.init(prng.random(), 1920, 1080, 64, 32);
+    var pet = Pet.init(prng.random(), &sprites.cat, 1920, 1080, 64, 32);
     const over: Input = .{ .pointer_x = pet.x + 30, .pointer_y = pet.y + 30, .pointer_moved = false };
     run(&pet, 1.0, over);
     try std.testing.expectEqual(State.bat, pet.state);

@@ -2,12 +2,17 @@
 # Send one command to the desktop pet. Silent no-op when the pet is not running,
 # so it is safe to call from hooks, makefiles and shell functions.
 #
-#   petctl ok | fail | work | done | sleep | wake | meow | goto X | quit
-#   petctl run CMD...   run CMD, then send ok or fail based on its exit code
+#   petctl [-n NAME] ok | fail | work | done | climb | sleep | wake | meow | say TEXT | goto X | quit
+#   petctl [-n NAME] run CMD...   run CMD, then send ok or fail based on its exit code
 #
-# The pipe lives at $XDG_RUNTIME_DIR/pet.fifo (or /tmp/pet.fifo); override with PET_FIFO.
+# The pipe lives at $XDG_RUNTIME_DIR/pet.fifo (or /tmp/pet.fifo). A pet started
+# with --name NAME listens on pet-NAME.fifo: address it with -n NAME or PET_NAME.
+# PET_FIFO overrides the path entirely.
 
-fifo="${PET_FIFO:-${XDG_RUNTIME_DIR:-/tmp}/pet.fifo}"
+name="${PET_NAME:-}"
+if [ "$1" = "-n" ]; then name="$2"; shift 2; fi
+dir="${XDG_RUNTIME_DIR:-/tmp}"
+if [ -n "$name" ]; then fifo="${PET_FIFO:-$dir/pet-$name.fifo}"; else fifo="${PET_FIFO:-$dir/pet.fifo}"; fi
 
 send() {
     [ -p "$fifo" ] || return 0
@@ -20,7 +25,7 @@ send() {
 
 case "$1" in
     "" | -h | --help)
-        sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
         ;;
     run)
         shift

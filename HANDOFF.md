@@ -94,8 +94,9 @@ multi-monitor, systemd user service, config file, PNG sprite loading).
 ```
 src/main.zig     event loop, --scale/--help parsing, render(), input shape
 src/pet.zig      Pet struct, State/Event enums, update(), frame()
-src/sprites.zig  ASCII frames; add a new animation as a `pub const name = [_]Frame{...}`
-                 and register it in tools/sheet.zig's `rows` table
+src/sprites.zig  Frame/palette/Transform/source(), Character struct, `all` + byName()
+src/characters/  cat.zig, dog.zig, rabbit.zig; each exports `character`
+src/font.zig     3x5 font + drawBubble()
 src/x11.zig      Window.init/present/move/setInputShape/queryPointer/pollEvent
 src/events.zig   Fifo (open, pollCommand, close+unlink) and parse()
 src/c.h          headers for the translate-c step
@@ -104,7 +105,15 @@ scripts/pet.sh   zb, zt, pet_run, pet_say
 tools/sheet.zig  sprite sheet dump (zig build sheet)
 ```
 
-Adding a new reaction end to end: a `Frame` array in sprites.zig, a `State`
-and optionally an `Event` in pet.zig with handling in `onEvent`, `update`
-and `frame`, a word in `events.zig`'s `parse`, the usage string in main.zig,
-and a row in the README tables.
+Adding a new reaction end to end: a `Frame` array in every file under
+src/characters/ plus a field in `sprites.Character`, a `State` and optionally
+an `Event` in pet.zig with handling in `onEvent`, `update` and `frame`, a word
+in `events.zig`'s `parse`, the usage string in main.zig, `anims` in
+tools/sheet.zig, and a row in the README tables.
+
+Adding an animal: copy src/characters/cat.zig, change `name` and the art,
+pick sound clip names (add clips in tools/gen_sounds.py and the `clips`
+table in main.zig's Audio), and append it to `sprites.all`.
+
+Multiple instances are separate processes; `--name` picks pet-NAME.fifo and
+`petctl -n NAME` / `PET_NAME` address it. They do not know about each other.

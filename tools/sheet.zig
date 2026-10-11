@@ -11,18 +11,21 @@ const scale = 4;
 const cell = sprites.W * scale;
 const gap = 4;
 
-const Row = struct { name: []const u8, frames: []const sprites.Frame };
-const rows = [_]Row{
-    .{ .name = "idle", .frames = &sprites.idle },
-    .{ .name = "walk", .frames = &sprites.walk },
-    .{ .name = "sit", .frames = &sprites.sit },
-    .{ .name = "sleep", .frames = &sprites.sleep },
-    .{ .name = "alert", .frames = &sprites.alert },
-    .{ .name = "happy", .frames = &sprites.happy },
-    .{ .name = "angry", .frames = &sprites.angry },
-    .{ .name = "work", .frames = &sprites.work },
-    .{ .name = "bat", .frames = &sprites.bat },
-    .{ .name = "held", .frames = &sprites.held },
+const anims = [_][]const u8{ "idle", "walk", "sit", "sleep", "alert", "happy", "angry", "work", "bat", "held" };
+
+fn framesOf(ch: *const sprites.Character, anim: []const u8) []const sprites.Frame {
+    inline for (anims) |name| {
+        if (std.mem.eql(u8, name, anim)) return @field(ch, name);
+    }
+    unreachable;
+}
+
+/// One row per animation per character, characters side by side.
+const Row = struct { frames: []const sprites.Frame };
+const rows = blk: {
+    var out: [anims.len]Row = undefined;
+    for (anims, 0..) |a, i| out[i] = .{ .frames = framesOf(&sprites.cat, a) };
+    break :blk out;
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -31,12 +34,12 @@ pub fn main(init: std.process.Init) !void {
     const out_path = it.next() orelse "sheet.ppm";
 
     const transforms = [_]sprites.Transform{ .none, .flip_h, .flip_v, .rot180, .wall_left, .wall_right };
-    var max_frames: usize = transforms.len;
-    for (rows) |r| max_frames = @max(max_frames, r.frames.len);
+    // Each character gets a column block 4 frames wide.
+    const block = 4 * (cell + gap) + gap;
     const sample = "Hello world 0123 ok?!";
     const bubble = font.Layout.forChars(sample.len, 2);
-    const width = @max(max_frames * (cell + gap) + gap, bubble.w + 2 * gap);
-    const height = (rows.len + 1) * (cell + gap) + gap + bubble.h + gap;
+    const width = @max(@max(sprites.all.len * block, transforms.len * (cell + gap) + gap), bubble.w + 2 * gap);
+    const height = (anims.len + 1) * (cell + gap) + gap + bubble.h + gap;
 
     const buf = try init.gpa.alloc(u8, width * height * 3);
     defer init.gpa.free(buf);
@@ -51,8 +54,8 @@ pub fn main(init: std.process.Init) !void {
         buf[i + 2] = v;
     };
 
-    for (rows, 0..) |r, ri| for (r.frames, 0..) |frame, fi| {
-        const ox = gap + fi * (cell + gap);
+    for (sprites.all, 0..) |ch, ci| for (anims, 0..) |a, ri| for (framesOf(ch, a), 0..) |frame, fi| {
+        const ox = ci * block + gap + fi * (cell + gap);
         const oy = gap + ri * (cell + gap);
         for (0..cell) |y| for (0..cell) |x| {
             const px = frame.px[y / scale][x / scale];
@@ -63,14 +66,15 @@ pub fn main(init: std.process.Init) !void {
             buf[i + 2] = @truncate(px);
         };
     };
+    _ = rows;
 
     // Last row: the standing frame in every orientation the renderer supports.
     for (transforms, 0..) |t, ti| {
         const ox = gap + ti * (cell + gap);
-        const oy = gap + rows.len * (cell + gap);
+        const oy = gap + anims.len * (cell + gap);
         for (0..cell) |y| for (0..cell) |x| {
             const src = sprites.source(t, @intCast(x / scale), @intCast(y / scale));
-            const px = sprites.idle[0].px[@intCast(src.y)][@intCast(src.x)];
+            const px = sprites.cat.idle[0].px[@intCast(src.y)][@intCast(src.x)];
             if (px >> 24 == 0) continue;
             const i = ((oy + y) * width + (ox + x)) * 3;
             buf[i] = @truncate(px >> 16);
@@ -85,7 +89,7 @@ pub fn main(init: std.process.Init) !void {
         defer init.gpa.free(tmp);
         @memset(tmp, 0);
         font.drawBubble(tmp.ptr, bubble.w, bubble, sample);
-        const oy = (rows.len + 1) * (cell + gap) + gap;
+        const oy = (anims.len + 1) * (cell + gap) + gap;
         for (0..bubble.h) |y| for (0..bubble.w) |x| {
             const px = tmp[y * bubble.w + x];
             if (px >> 24 == 0) continue;

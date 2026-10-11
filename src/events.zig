@@ -1,5 +1,6 @@
 //! A named pipe other programs can write one-line commands into, e.g.
 //!   echo fail > "$XDG_RUNTIME_DIR/pet.fifo"
+//! A named instance uses pet-NAME.fifo instead, so several pets can run.
 //! Opened read+write so the pipe never reports EOF when writers come and go.
 
 const std = @import("std");
@@ -23,10 +24,13 @@ pub const Fifo = struct {
     /// Holds the most recently extracted line for the caller.
     line: [512]u8 = undefined,
 
-    pub fn open() !Fifo {
+    pub fn open(name: ?[]const u8) !Fifo {
         var f: Fifo = .{ .fd = -1, .path_buf = undefined, .path_len = 0 };
         const dir: []const u8 = if (c.getenv("XDG_RUNTIME_DIR")) |d| std.mem.span(d) else "/tmp";
-        const p = try std.mem.printSentinel(&f.path_buf, "{s}/pet.fifo", .{dir}, 0);
+        const p = if (name) |n|
+            try std.mem.printSentinel(&f.path_buf, "{s}/pet-{s}.fifo", .{ dir, n }, 0)
+        else
+            try std.mem.printSentinel(&f.path_buf, "{s}/pet.fifo", .{dir}, 0);
         f.path_len = p.len;
 
         // Ignore the result: if it already exists we just open it.

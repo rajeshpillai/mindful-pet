@@ -1,7 +1,7 @@
 # mindful-pet
 
-A tiny desktop pet written in Zig: a pixel-art cat that lives on the edges of
-your screen. It wanders, naps, climbs the sides, hangs from the top, drops
+A tiny desktop pet written in Zig: a pixel-art cat, dog or rabbit that lives
+on the edges of your screen. It wanders, naps, climbs the sides, hangs from the top, drops
 down, chases your mouse, swipes at it, and reacts with sounds to events you
 send it from scripts (a failed build, a finished deploy, a Claude Code hook).
 
@@ -22,6 +22,7 @@ desktop it runs through XWayland. See [Limitations](#limitations).
 zig build            # binary lands in zig-out/bin/pet
 zig build run        # build and launch
 zig build run -- --scale 6
+zig build run -- --pet dog --name rex   # a second animal with its own pipe
 zig build test       # unit tests for the state machine and command parser
 zig build sheet      # dump every animation frame to zig-out/sheet.ppm
 ```
@@ -29,9 +30,12 @@ zig build sheet      # dump every animation frame to zig-out/sheet.ppm
 ## Command line
 
 ```
-pet [--scale N] [--top N] [--mute] [--help]
+pet [--pet cat|dog|rabbit] [--name NAME] [--scale N] [--top N] [--mute] [--help]
 
-  --scale N   pixel zoom of the 16x16 art, 1..12 (default 4 = 64px cat)
+  --pet KIND  which animal: cat (default), dog or rabbit
+  --name NAME run as a named instance listening on pet-NAME.fifo, so you can
+              run several at once and address each with petctl -n NAME
+  --scale N   pixel zoom of the 16x16 art, 1..12 (default 4 = 64px)
   --top N     pixels reserved for the top panel; the cat hangs below it (default 32)
   --mute      no sounds
   -h, --help  show this help
@@ -71,10 +75,27 @@ clips are synthesized by `tools/gen_sounds.py` and embedded in the binary;
 drop real recordings into `src/assets/` and rebuild to replace them. Pass
 `--mute` to silence it.
 
+## Several pets
+
+Each process is one animal. Start more with `--name`, which gives each its
+own pipe, and talk to them with `petctl -n NAME` or `PET_NAME=NAME`:
+
+```sh
+pet &                              # the cat, on pet.fifo
+pet --pet dog --name rex &         # on pet-rex.fifo
+pet --pet rabbit --name bun --scale 3 &
+petctl -n rex say "walkies"
+PET_NAME=bun petctl fail
+```
+
+The hooks and shell shortcuts talk to the unnamed pet unless `PET_NAME` is
+set in that shell. Each animal has its own sounds: the cat meows, purrs and
+hisses, the dog woofs, pants and growls, the rabbit squeaks and thumps.
+
 ## Sending it events
 
-The cat listens on a named pipe at `$XDG_RUNTIME_DIR/pet.fifo`. Write one
-command per line:
+The pet listens on a named pipe at `$XDG_RUNTIME_DIR/pet.fifo` (or
+`pet-NAME.fifo` for a named instance). Write one command per line:
 
 | Command | Effect |
 | --- | --- |
@@ -138,7 +159,8 @@ watchexec -e zig -- petctl run zig build test
 ```
 src/main.zig     event loop, argument parsing, rendering into the window buffer
 src/pet.zig      the state machine (idle, walk, run, sit, sleep, alert, happy, angry, work, bat, climb, cling, hang, held, fall)
-src/sprites.zig  16x16 frames drawn as ASCII art, expanded at comptime
+src/sprites.zig  frame format, palette, orientation mapping, Character struct
+src/characters/  cat.zig, dog.zig, rabbit.zig: 16x16 ASCII frames per animal
 src/x11.zig      transparent override-redirect window, XImage blit, XFixes input shape
 src/events.zig   named-pipe command reader and parser
 src/font.zig     3x5 bitmap font and the speech-bubble renderer
@@ -151,8 +173,10 @@ scripts/pet.sh   shell shortcuts (zb, zt, pet_run, pet_say)
 .claude/         Claude Code hooks that drive the cat
 ```
 
-To change the art, edit the ASCII blocks in `src/sprites.zig` (palette at the
-top of the file) and run `zig build sheet` to check the result.
+To change the art, edit the ASCII blocks in `src/characters/*.zig` (palette
+in `src/sprites.zig`) and run `zig build sheet` to check the result. To add
+an animal, copy one of those files, register it in `sprites.all`, and give it
+sound clip names from `src/assets/` (or null for silence).
 
 ## Limitations
 

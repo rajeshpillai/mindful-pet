@@ -1,9 +1,13 @@
-//! Pixel-art frames for the cat, authored as ASCII and expanded at comptime.
+//! Pixel-art frame format shared by every character, plus the orientation
+//! mapping. The characters themselves live in src/characters/*.zig.
 //! Every frame is 16x16 and drawn facing RIGHT; the renderer mirrors it.
 //!
 //! Palette:  .  transparent   k  outline   o  orange   d  stripe
 //!           w  white         p  pink      e  eye      z  "Z"
-//!           !  alarm red     h  heart
+//!           !  alarm red     h  heart     b  brown    c  tan
+//!           g  grey
+
+const std = @import("std");
 
 pub const W = 16;
 pub const H = 16;
@@ -46,11 +50,14 @@ fn color(ch: u8) Pixel {
         'z' => 0xFF5C7CFA,
         '!' => 0xFFE5484D,
         'h' => 0xFFE5484D,
+        'b' => 0xFF9C6B3C,
+        'c' => 0xFFE0B983,
+        'g' => 0xFFC9C9D1,
         else => @compileError("unknown palette character"),
     };
 }
 
-fn parse(comptime rows: [H][]const u8, comptime dy: i8) Frame {
+pub fn parse(comptime rows: [H][]const u8, comptime dy: i8) Frame {
     @setEvalBranchQuota(20_000);
     var f: Frame = .{ .px = undefined, .dy = dy };
     for (rows, 0..) |row, y| {
@@ -60,408 +67,44 @@ fn parse(comptime rows: [H][]const u8, comptime dy: i8) Frame {
     return f;
 }
 
-// --- standing / idle -------------------------------------------------------
-
-pub const idle = [_]Frame{
-    parse(.{
-        "................",
-        "..........k..k..",
-        "..........kokok.",
-        "..........kooook",
-        "..k.......koeook",
-        "..ko......kooook",
-        "..ko...kkkkoopk.",
-        "...kk.koooooook.",
-        "....kkooodooook.",
-        "....kooodooook..",
-        "....kooooooook..",
-        "....kkkkkkkkkk..",
-        ".....ko.....ko..",
-        ".....ko.....ko..",
-        ".....kk.....kk..",
-        "................",
-    }, 0),
-    parse(.{
-        "................",
-        "..........k..k..",
-        "..........kokok.",
-        "..k.......kooook",
-        "..ko......koeook",
-        "..ko......kooook",
-        "...ko..kkkkoopk.",
-        "....kkkoooooook.",
-        "....kkooodooook.",
-        "....kooodooook..",
-        "....kooooooook..",
-        "....kkkkkkkkkk..",
-        ".....ko.....ko..",
-        ".....ko.....ko..",
-        ".....kk.....kk..",
-        "................",
-    }, 0),
+/// One animal: every animation the state machine can ask for, plus which
+/// embedded sound clip (by base name) to play for each reaction.
+pub const Character = struct {
+    name: []const u8,
+    idle: []const Frame,
+    walk: []const Frame,
+    sit: []const Frame,
+    sleep: []const Frame,
+    alert: []const Frame,
+    happy: []const Frame,
+    angry: []const Frame,
+    work: []const Frame,
+    bat: []const Frame,
+    held: []const Frame,
+    sound_poke: ?[]const u8,
+    sound_happy: ?[]const u8,
+    sound_angry: ?[]const u8,
 };
 
-// --- walking (4 frames, legs scissor, slight bob) --------------------------
+pub const cat = @import("characters/cat.zig").character;
+pub const dog = @import("characters/dog.zig").character;
+pub const rabbit = @import("characters/rabbit.zig").character;
+pub const all = [_]*const Character{ &cat, &dog, &rabbit };
 
-pub const walk = [_]Frame{
-    parse(.{
-        "................",
-        "..........k..k..",
-        "..........kokok.",
-        "..........kooook",
-        "..k.......koeook",
-        "..ko......kooook",
-        "..ko...kkkkoopk.",
-        "...kk.koooooook.",
-        "....kkooodooook.",
-        "....kooodooook..",
-        "....kooooooook..",
-        "....kkkkkkkkkk..",
-        ".....ko.....ko..",
-        ".....ko.....ko..",
-        ".....kk.....kk..",
-        "................",
-    }, 0),
-    parse(.{
-        "................",
-        "..........k..k..",
-        "..........kokok.",
-        "..k.......kooook",
-        "..ko......koeook",
-        "..ko......kooook",
-        "...ko..kkkkoopk.",
-        "....kkkoooooook.",
-        "....kkooodooook.",
-        "....kooodooook..",
-        "....kooooooook..",
-        "....kkkkkkkkkk..",
-        "....ko.k...ko.k.",
-        "....ko..k..ko..k",
-        "....kk..k..kk..k",
-        "................",
-    }, 1),
-    parse(.{
-        "................",
-        "..........k..k..",
-        "..........kokok.",
-        "..........kooook",
-        "..k.......koeook",
-        "..ko......kooook",
-        "..ko...kkkkoopk.",
-        "...kk.koooooook.",
-        "....kkooodooook.",
-        "....kooodooook..",
-        "....kooooooook..",
-        "....kkkkkkkkkk..",
-        "......ko.....ko.",
-        "......ko.....ko.",
-        "......kk.....kk.",
-        "................",
-    }, 0),
-    parse(.{
-        "................",
-        "..........k..k..",
-        "..........kokok.",
-        "..k.......kooook",
-        "..ko......koeook",
-        "..ko......kooook",
-        "...ko..kkkkoopk.",
-        "....kkkoooooook.",
-        "....kkooodooook.",
-        "....kooodooook..",
-        "....kooooooook..",
-        "....kkkkkkkkkk..",
-        "...k..ko..k..ko.",
-        "....k.ko...k.ko.",
-        "....k.kk...k.kk.",
-        "................",
-    }, 1),
-};
+pub fn byName(name: []const u8) ?*const Character {
+    for (all) |ch| if (std.mem.eql(u8, ch.name, name)) return ch;
+    return null;
+}
 
-// --- sitting (second frame blinks) ----------------------------------------
+test "all characters have every animation" {
+    for (all) |ch| {
+        inline for (.{ "idle", "walk", "sit", "sleep", "alert", "happy", "angry", "work", "bat", "held" }) |anim| {
+            try std.testing.expect(@field(ch, anim).len > 0);
+        }
+    }
+    try std.testing.expectEqualStrings("dog", sprites_byName_dog().name);
+}
 
-pub const sit = [_]Frame{
-    parse(.{
-        "................",
-        "..........k..k..",
-        "..........kokok.",
-        "..........kooook",
-        "..........koeook",
-        "..........kooook",
-        "........kkkoopk.",
-        ".......kooooook.",
-        "......koodoook..",
-        "..k..kooodoook..",
-        "..k.kooooooook..",
-        "..kokooooooooook",
-        "...kkoooooooook.",
-        "....kooookkoook.",
-        "....kkkkkkkkkkk.",
-        "................",
-    }, 0),
-    parse(.{
-        "................",
-        "..........k..k..",
-        "..........kokok.",
-        "..........kooook",
-        "..........kokook",
-        "..........kooook",
-        "........kkkoopk.",
-        ".......kooooook.",
-        "......koodoook..",
-        "..k..kooodoook..",
-        "..k.kooooooook..",
-        "..kokooooooooook",
-        "...kkoooooooook.",
-        "....kooookkoook.",
-        "....kkkkkkkkkkk.",
-        "................",
-    }, 0),
-};
-
-// --- sleeping loaf with drifting Z ----------------------------------------
-
-pub const sleep = [_]Frame{
-    parse(.{
-        "................",
-        "................",
-        "................",
-        "..............z.",
-        ".............z..",
-        "................",
-        "................",
-        "..........kk.kk.",
-        "......kkkkkoook.",
-        ".....koooooookok",
-        "....kooodooooook",
-        "...koooodoooook.",
-        "...kkooooooooook",
-        "....kkkkkkkkkkk.",
-        "................",
-        "................",
-    }, 0),
-    parse(.{
-        "................",
-        "...............z",
-        "................",
-        "............z...",
-        "................",
-        "................",
-        "................",
-        "..........kk.kk.",
-        "......kkkkkoook.",
-        ".....koooooookok",
-        "....kooodooooook",
-        "...koooodoooook.",
-        "...kkooooooooook",
-        "....kkkkkkkkkkk.",
-        "................",
-        "................",
-    }, 0),
-};
-
-// --- reactions --------------------------------------------------------------
-
-/// Startled: tail straight up, wide eye, exclamation mark.
-pub const alert = [_]Frame{
-    parse(.{
-        "...............!",
-        "..k.......k..k.!",
-        "..k.......kokok!",
-        "..k.......kooook",
-        "..k.......kwkook",
-        "..k.......kooook",
-        "..k....kkkkoopk.",
-        "...kk.koooooook.",
-        "....kkooodooook.",
-        "....kooodooook..",
-        "....kooooooook..",
-        "....kkkkkkkkkk..",
-        ".....ko.....ko..",
-        ".....ko.....ko..",
-        ".....kk.....kk..",
-        "................",
-    }, 0),
-};
-
-/// Content: eyes closed, tail up, little heart.
-pub const happy = [_]Frame{
-    parse(.{
-        ".............h.h",
-        "..k.......k..khh",
-        "..k.......kokokh",
-        "..k.......kooook",
-        "..k.......kokook",
-        "..k.......kooook",
-        "..k....kkkkoopk.",
-        "...kk.koooooook.",
-        "....kkooodooook.",
-        "....kooodooook..",
-        "....kooooooook..",
-        "....kkkkkkkkkk..",
-        ".....ko.....ko..",
-        ".....ko.....ko..",
-        ".....kk.....kk..",
-        "................",
-    }, 0),
-    parse(.{
-        "................",
-        "..k.......k..k..",
-        "..k.......kokok.",
-        "..k.......kooook",
-        "..k.......kokook",
-        "..k.......kooook",
-        "..k....kkkkoopk.",
-        "...kk.koooooook.",
-        "....kkooodooook.",
-        "....kooodooook..",
-        "....kooooooook..",
-        "....kkkkkkkkkk..",
-        ".....ko.....ko..",
-        ".....ko.....ko..",
-        ".....kk.....kk..",
-        "................",
-    }, 0),
-};
-
-/// Hissing: red eye, bared teeth, tail bristled.
-pub const angry = [_]Frame{
-    parse(.{
-        "................",
-        ".kk.......k..k..",
-        ".kk.......kokok.",
-        ".kk.......kooook",
-        ".kk.......k!kook",
-        "..k.......kooook",
-        "..k....kkkkoowk.",
-        "...kk.koooooook.",
-        "....kkooodooook.",
-        "....kooodooook..",
-        "....kooooooook..",
-        "....kkkkkkkkkk..",
-        ".....ko.....ko..",
-        ".....ko.....ko..",
-        ".....kk.....kk..",
-        "................",
-    }, 0),
-    parse(.{
-        "................",
-        ".kk.......k..k..",
-        ".kk.......kokok.",
-        ".kk.......kooook",
-        ".kk.......k!kook",
-        "..k.......kooook",
-        "..k....kkkkoopk.",
-        "...kk.koooooook.",
-        "....kkooodooook.",
-        "....kooodooook..",
-        "....kooooooook..",
-        "....kkkkkkkkkk..",
-        ".....ko.....ko..",
-        ".....ko.....ko..",
-        ".....kk.....kk..",
-        "................",
-    }, 0),
-};
-
-/// Working: sitting, front paws tapping at an invisible keyboard.
-pub const work = [_]Frame{
-    parse(.{
-        "................",
-        "..........k..k..",
-        "..........kokok.",
-        "..........kooook",
-        "..........koeook",
-        "..........kooook",
-        "........kkkoopk.",
-        ".......kooooook.",
-        "......koodoook..",
-        "..k..kooodookk..",
-        "..k.koooooooook.",
-        "..kokoooooooook.",
-        "...kkoooooooook.",
-        "....koooook.k...",
-        "....kkkkkkkkk...",
-        "................",
-    }, 0),
-    parse(.{
-        "................",
-        "..........k..k..",
-        "..........kokok.",
-        "..........kooook",
-        "..........koeook",
-        "..........kooook",
-        "........kkkoopk.",
-        ".......kooooook.",
-        "......koodoook..",
-        "..k..kooodoook..",
-        "..k.kooooooookk.",
-        "..kokoooooooook.",
-        "...kkoooooooook.",
-        "....kooook.k....",
-        "....kkkkkkkkk...",
-        "................",
-    }, 0),
-};
-
-/// Batting at the cursor: front paw lifts, then swipes forward.
-pub const bat = [_]Frame{
-    parse(.{
-        "................",
-        "..........k..k..",
-        "..........kokok.",
-        "..........kooook",
-        "..k.......koeook",
-        "..ko......kooook",
-        "..ko...kkkkoopk.",
-        "...kk.koooooook.",
-        "....kkooodooook.",
-        "....kooodooook..",
-        "....kooooooook..",
-        "....kkkkkkkkkko.",
-        ".....ko.......k.",
-        ".....ko.........",
-        ".....kk.........",
-        "................",
-    }, 0),
-    parse(.{
-        "................",
-        "..........k..k..",
-        "..........kokok.",
-        "..........kooook",
-        "..k.......koeook",
-        "..ko......kooook",
-        "..ko...kkkkoopk.",
-        "...kk.koooooook.",
-        "....kkooodooook.",
-        "....kooodooook..",
-        "....kooooooookko",
-        "....kkkkkkkkkk..",
-        ".....ko.........",
-        ".....ko.........",
-        ".....kk.........",
-        "................",
-    }, 0),
-};
-
-/// Held by the scruff: legs dangling.
-pub const held = [_]Frame{
-    parse(.{
-        "................",
-        "..........k..k..",
-        "..........kokok.",
-        "..........kooook",
-        "..........kwkook",
-        "..........kooook",
-        ".......kkkkoopk.",
-        "......koooooook.",
-        "......kooodoook.",
-        "..k...koooooook.",
-        "..k...kooooook..",
-        "...k..kkkkkkkk..",
-        "....k..ko...ko..",
-        "....k..ko...ko..",
-        ".....k.kk...kk..",
-        "................",
-    }, 0),
-};
+fn sprites_byName_dog() *const Character {
+    return byName("dog").?;
+}

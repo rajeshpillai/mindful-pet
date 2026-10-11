@@ -27,6 +27,8 @@ agreed to tackle things; it is not a promise.
 - [x] Bat at the cursor when it rests on the cat
 - [x] Sounds: meow, purr, hiss (synthesized placeholders, embedded)
 - [x] `say TEXT` speech bubble, and the Notification hook passes its message
+- [x] Several pets: cat, dog, rabbit as separate sprite sets (`--pet`), any
+      number of instances with their own pipes (`--name`, `petctl -n`)
 - [ ] Break the loops: stretch after waking, yawn before sleep, second idle,
       tail flick while sitting
 - [ ] Real sound recordings in `src/assets/` (no code change needed)
@@ -48,4 +50,5 @@ agreed to tackle things; it is not a promise.
 
 - [ ] Load sprites from PNG so they can be drawn in Aseprite
 - [ ] Bigger base resolution (24x24 or 32x32)
-- [ ] A second character
+- [ ] Let pets notice each other (sit together, chase)
+- [ ] Per-animal behaviour (rabbit hops in arcs, dog fetches the cursor)
