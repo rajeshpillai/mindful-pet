@@ -46,3 +46,6 @@ list publish together after all lines arrive. Malformed monitor entries are
 ignored while still allowing snapshot completion. A final motion and button
 release in one frame now lands the pet instead of leaving it held forever;
 unit and process regressions cover default confinement and grouped carrying.
+Malformed monitor-count headers now publish primary-only geometry. Solo pointer
+following, like grouped following, waits for quiet floor states; carrying is
+still immediate. Regressions cover sleeping/working pets and resuming visits.

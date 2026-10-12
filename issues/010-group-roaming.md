@@ -45,3 +45,8 @@ updates to every pet, matching the real extension. Ordinary random walks
 are suppressed while a group plan is active, and explicit `goto` commands
 finish before adopting the group plan again. Targeted process regressions
 cover lock contention, a full group and manual walking.
+Pointer motion on the current monitor retains the 200 ms group heartbeat;
+it does not rewrite the plan every frame. A member that cannot see the shared
+monitor drops to solo roaming without changing other members' plans, avoiding
+churn between legacy/current backends or after monitor removal. Unit and process
+tests cover both cases.

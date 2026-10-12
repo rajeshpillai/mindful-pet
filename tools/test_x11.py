@@ -108,6 +108,11 @@ class X11(unittest.TestCase):
     def test_roam_uses_actual_monitors_and_ignores_gaps(self):
         self.start(roam=True)
         self.run_cmd("xdotool", "mousemove", "100", "500")
+        time.sleep(0.15)
+        self.assertEqual(self.geometry()["Y"], 1784, "work must not follow the pointer")
+        self.command("done")
+        time.sleep(0.08)
+        self.run_cmd("xdotool", "mousemove", "110", "500")
         wait_for(lambda: self.geometry()["Y"] == 1016)
         self.assertTrue(0 <= self.geometry()["X"] <= 1856)
         self.run_cmd("xdotool", "mousemove", "100", "1800")

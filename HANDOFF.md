@@ -126,6 +126,17 @@ History in short (`git log --oneline` has the rest):
   two Xvfb checks. The complete-snapshot protocol also passed a two-pet
   autonomous visit in real headless GNOME. Layout changes deliberately recover
   to primary; the existing backwards-walking observation still needs reproduction.
+- Final review follow-ups: pointer motion within the current monitor no longer
+  requests a group visit or bypasses the 200 ms heartbeat. Solo pointer following
+  and group visits avoid switching away and back during pointer motion. Following
+  now waits for quiet floor states; carrying still
+  overrides this. A member missing the shared monitor logs once and falls back
+  to independent roaming without rewriting other members' plans. Bad monitor-count
+  headers publish safe primary-only geometry instead of stranding a snapshot.
+  Auto/GNOME unit counts are 36 each, X11 26; all twenty integration regressions,
+  two Xvfb checks and extension checks passed on the ReleaseSafe build.
+  The automated review identified these cases but its Claude fix agent exhausted
+  its usage allowance; the fixes were completed locally and tested.
 
 ## Environment facts that shaped the design
 

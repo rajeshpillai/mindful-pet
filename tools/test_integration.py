@@ -154,6 +154,8 @@ class Integration(unittest.TestCase):
             window["conn"].sendall(tail)
         wait_for(lambda: primary["moves"][-1][1] == 536)
         # The new list is usable at once: the pointer finds the second monitor.
+        self.command(fifo, "done")
+        time.sleep(0.08)
         primary["conn"].sendall(b"pointer 1000 1300\n")
         wait_for(lambda: primary["moves"][-1][1] == 1904)
         self.command(fifo, "quit")
@@ -178,6 +180,8 @@ class Integration(unittest.TestCase):
         self.command(fifo, "work")
         self.command(fifo, "say roaming")
         wait_for(lambda: bool(primary["moves"]))
+        self.command(fifo, "done")
+        time.sleep(0.08)
         primary["conn"].sendall(b"pointer 100 500\n")
         wait_for(lambda: primary["moves"][-1][1] == 1016)
         wait_for(lambda: bool(bubble["moves"]) and bubble["moves"][-1][1] < 1080)
@@ -191,6 +195,65 @@ class Integration(unittest.TestCase):
         self.assertTrue(710 <= primary["moves"][-1][0] <= 2012)
         self.command(fifo, "quit")
         self.assertEqual(pet.wait(timeout=1), 0)
+
+    def test_solo_pointer_roaming_leaves_work_and_sleep_undisturbed(self):
+        for state in ("work", "sleep"):
+            with self.subTest(state=state):
+                shell, pet, fifo = self.start(roam=True)
+                primary = next(w for w in shell.windows if w["primary"])
+                self.command(fifo, state)
+                wait_for(lambda: bool(primary["moves"]))
+                time.sleep(0.08)
+                primary["conn"].sendall(b"pointer 100 500\n")
+                time.sleep(0.15)
+                self.assertEqual(primary["moves"][-1][1], 1784)
+                self.command(fifo, "done" if state == "work" else "wake")
+                time.sleep(0.75)
+                primary["conn"].sendall(b"pointer 110 500\n")
+                wait_for(lambda: primary["moves"][-1][1] == 1016)
+                self.command(fifo, "quit")
+                self.assertEqual(pet.wait(timeout=1), 0)
+
+    def test_same_monitor_pointer_motion_keeps_group_heartbeat_bounded(self):
+        shell, pet, fifo = self.start(roam_group="heartbeat")
+        primary = next(w for w in shell.windows if w["primary"])
+        path = fifo.parent / f"pet-roam-{os.geteuid()}-heartbeat.state"
+        wait_for(lambda: path.exists() and path.stat().st_size > 0)
+        self.command(fifo, "work")
+        time.sleep(0.08)
+        self.command(fifo, "done")
+        time.sleep(0.08)
+        last_write = path.stat().st_mtime_ns
+        changes = 0
+        for i in range(40):
+            primary["conn"].sendall(f"pointer {1000+i} 1300\n".encode())
+            time.sleep(0.02)
+            stamp = path.stat().st_mtime_ns
+            if stamp != last_write:
+                changes += 1
+                last_write = stamp
+        self.assertLessEqual(changes, 7, "local pointer motion must not write the group file every frame")
+        self.command(fifo, "quit")
+        self.assertEqual(pet.wait(timeout=1), 0)
+
+    def test_missing_shared_monitor_falls_back_without_rewriting_the_plan(self):
+        shell, pet, fifo = self.start(roam_group="geometry")
+        primary = next(w for w in shell.windows if w["primary"])
+        path = fifo.parent / f"pet-roam-{os.geteuid()}-geometry.state"
+        wait_for(lambda: bool(primary["moves"]))
+        primary["conn"].sendall(b"pointer 100 500\n")
+        wait_for(lambda: primary["moves"][-1][1] == 1016)
+        wait_for(lambda: struct.unpack_from("<ii", path.read_bytes(), 40) == (0, 0))
+        for window in shell.windows:
+            window["conn"].sendall(snapshot(STACKED[1], (STACKED[1],)))
+        wait_for(lambda: primary["moves"][-1][1] == 1784)
+        time.sleep(0.3)
+        self.assertIsNone(pet.poll())
+        self.assertEqual(struct.unpack_from("<ii", path.read_bytes(), 40), (0, 0))
+        self.command(fifo, "quit")
+        _, log = pet.communicate(timeout=2)
+        self.assertEqual(pet.returncode, 0, log.decode())
+        self.assertEqual(log.decode().count("leaving group geometry (IncompatibleMonitors); roaming alone"), 1)
 
     def test_roam_drag_continues_across_monitor_origins(self):
         shell, pet, fifo = self.start(roam=True)
@@ -359,6 +422,8 @@ class Integration(unittest.TestCase):
         wait_for(lambda: bool(primary["moves"]))
         time.sleep(0.3)
         self.assertIsNone(full.poll(), "a group failure must not end the pet")
+        self.command(full_fifo, "done")
+        time.sleep(0.08)
         primary["conn"].sendall(b"pointer 100 500\n")
         wait_for(lambda: primary["moves"][-1][1] == 1016)
         self.command(full_fifo, "quit")

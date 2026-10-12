@@ -352,20 +352,23 @@ pub const Window = struct {
             }
             return;
         }
+        if (std.mem.eql(u8, cmd, "monitors")) {
+            if (self.pending) |*p| {
+                const expected = if (it.next()) |tok| std.fmt.parseInt(usize, tok, 10) catch 0 else 0;
+                p.monitors = .{};
+                p.expected = if (it.next() == null) expected else 0;
+                p.received = 0;
+                self.publishIfComplete();
+            }
+            return;
+        }
         var nums: [5]i32 = .{ 0, 0, 0, 0, 0 };
         var count: usize = 0;
         while (it.next()) |tok| : (count += 1) {
             if (count == nums.len) break;
             nums[count] = std.fmt.parseInt(i32, tok, 10) catch return;
         }
-        if (std.mem.eql(u8, cmd, "monitors")) {
-            if (self.pending) |*p| {
-                p.monitors = .{};
-                p.expected = if (count >= 1 and nums[0] >= 0) @intCast(nums[0]) else null;
-                p.received = 0;
-                self.publishIfComplete();
-            }
-        } else if (std.mem.eql(u8, cmd, "pointer") and count >= 2) {
+        if (std.mem.eql(u8, cmd, "pointer") and count >= 2) {
             const x = nums[0] - self.origin_x;
             const y = nums[1] - self.origin_y;
             self.pointer = .{ .x = x, .y = y };
@@ -539,6 +542,18 @@ test "malformed monitor lines do not strand a complete snapshot" {
     try std.testing.expectEqual(@as(i32, 1366), w.screen_w);
     try std.testing.expectEqual(@as(usize, 2), w.monitors.len);
     try std.testing.expect(w.pending == null);
+}
+
+test "malformed monitor counts publish the safe primary-only snapshot" {
+    for ([_][]const u8{ "monitors", "monitors bad", "monitors -1", "monitors 1 extra" }) |line| {
+        var w: Window = .{ .sock = -1, .pixels = undefined, .encoded = undefined, .encoded_len = 0, .w = 64, .h = 64, .screen_w = 0, .screen_h = 0 };
+        w.handle("capabilities monitors");
+        w.handle("screen 710 1080 1366 768");
+        w.handle(line);
+        try std.testing.expectEqual(@as(i32, 1366), w.screen_w);
+        try std.testing.expectEqual(@as(usize, 1), w.monitors.len);
+        try std.testing.expect(w.pending == null);
+    }
 }
 
 test "disconnect is reported once without reviving the connection" {

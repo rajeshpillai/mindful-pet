@@ -58,7 +58,15 @@ const Shared = extern struct {
         return true;
     }
 
-    fn advance(self: *Shared, id: u64, size: u32, now: i64, monitors: *const geometry.Monitors, current: geometry.Monitor, requested: ?geometry.Monitor, ready: bool, rand: std.Random) !Plan {
+    fn advance(self: *Shared, id: u64, size: u32, now: i64, monitors: *const geometry.Monitors, requested: ?geometry.Monitor, ready: bool, rand: std.Random) !Plan {
+        var exists = false;
+        for (monitors.items[0..monitors.len]) |m| if (std.meta.eql(m, self.monitor())) {
+            exists = true;
+            break;
+        };
+        // An incompatible peer must not rewrite everybody else's plan at each
+        // heartbeat. The caller logs once and continues independently.
+        if (!exists) return error.IncompatibleMonitors;
         var slot: ?usize = null;
         var changed = false;
         for (&self.members, 0..) |*member, i| {
@@ -80,15 +88,6 @@ const Shared = extern struct {
         const own = slot orelse return error.GroupFull;
         self.members[own] = .{ .id = id, .seen_ms = now, .size = size, .reserved = 0 };
         self.seen_ms = now;
-        var exists = false;
-        for (monitors.items[0..monitors.len]) |m| if (std.meta.eql(m, self.monitor())) {
-            exists = true;
-            break;
-        };
-        if (!exists) {
-            self.select(current);
-            changed = true;
-        }
         if (requested) |m| {
             if (!std.meta.eql(m, self.monitor())) {
                 self.select(m);
@@ -200,7 +199,7 @@ pub const Group = struct {
         const read = c.pread(self.fd, &state, @sizeOf(Shared), 0);
         if (read < 0) return error.CannotReadRoamingGroup;
         if (read != @sizeOf(Shared) or !state.valid(shared_now)) state = Shared.fresh(shared_now, current, rand);
-        const plan = try state.advance(self.id, size, shared_now, monitors, current, self.pending_monitor, ready, rand);
+        const plan = try state.advance(self.id, size, shared_now, monitors, self.pending_monitor, ready, rand);
         if (c.pwrite(self.fd, &state, @sizeOf(Shared), 0) != @sizeOf(Shared)) return error.CannotWriteRoamingGroup;
         self.pending_monitor = null;
         return plan;
@@ -222,21 +221,23 @@ test "group members share plans, spread mixed sizes and survive a missing member
     monitors.add(first);
     monitors.add(second);
     var state = Shared.fresh(10000, first, prng.random());
-    _ = try state.advance(1, 64, 10000, &monitors, first, null, true, prng.random());
-    const b = try state.advance(2, 96, 10000, &monitors, first, null, true, prng.random());
-    const a = try state.advance(1, 64, 10001, &monitors, first, null, true, prng.random());
+    _ = try state.advance(1, 64, 10000, &monitors, null, true, prng.random());
+    const b = try state.advance(2, 96, 10000, &monitors, null, true, prng.random());
+    const a = try state.advance(1, 64, 10001, &monitors, null, true, prng.random());
     try std.testing.expectEqual(b.revision, a.revision);
     try std.testing.expect(b.target_x - a.target_x >= 80);
-    const changed = try state.advance(1, 64, 10002, &monitors, first, second, true, prng.random());
-    const follower = try state.advance(2, 96, 10003, &monitors, first, null, false, prng.random());
+    const changed = try state.advance(1, 64, 10002, &monitors, second, true, prng.random());
+    const follower = try state.advance(2, 96, 10003, &monitors, null, false, prng.random());
     try std.testing.expectEqualDeep(second, follower.monitor);
     try std.testing.expectEqual(changed.revision, follower.revision);
     // Keep member 2 alive while 1 exits. No leader election can strand the group.
-    _ = try state.advance(2, 96, 12500, &monitors, second, null, true, prng.random());
-    _ = try state.advance(2, 96, 14000, &monitors, second, null, true, prng.random());
+    _ = try state.advance(2, 96, 12500, &monitors, null, true, prng.random());
+    _ = try state.advance(2, 96, 14000, &monitors, null, true, prng.random());
     try std.testing.expectEqual(@as(u64, 0), state.members[0].id);
     state.visit_ms = 14001;
-    const visit = try state.advance(2, 96, 14001, &monitors, second, null, true, prng.random());
+    const waiting = try state.advance(2, 96, 14001, &monitors, null, false, prng.random());
+    try std.testing.expectEqualDeep(second, waiting.monitor);
+    const visit = try state.advance(2, 96, 14002, &monitors, null, true, prng.random());
     try std.testing.expectEqualDeep(first, visit.monitor);
     try std.testing.expect(!state.valid(visitDelay(prng.random()) + 14002));
 }
@@ -247,9 +248,21 @@ test "group destinations fit a screen narrower than the group" {
     var monitors: geometry.Monitors = .{};
     monitors.add(screen);
     var state = Shared.fresh(1, screen, prng.random());
-    for (0..5) |i| _ = try state.advance(i + 1, 64, 1, &monitors, screen, null, true, prng.random());
+    for (0..5) |i| _ = try state.advance(i + 1, 64, 1, &monitors, null, true, prng.random());
     for (0..5) |i| {
         const x = state.destination(i) - 32;
         try std.testing.expect(x >= 0 and x <= 96);
     }
+}
+
+test "a peer missing the shared monitor cannot churn the group plan" {
+    var prng = std.Random.DefaultPrng.init(9);
+    const primary: geometry.Monitor = .{ .x = 710, .y = 1080, .w = 1366, .h = 768 };
+    const other: geometry.Monitor = .{ .x = 0, .y = 0, .w = 1920, .h = 1080 };
+    var monitors: geometry.Monitors = .{};
+    monitors.add(primary);
+    var state = Shared.fresh(10000, other, prng.random());
+    const before = state;
+    try std.testing.expectError(error.IncompatibleMonitors, state.advance(1, 64, 10001, &monitors, primary, true, prng.random()));
+    try std.testing.expectEqualDeep(before, state);
 }

@@ -74,6 +74,10 @@ Pets stay on the primary monitor by default. Pass `--roam` to follow the
 pointer between monitors, carry a pet across them, and let it visit another
 monitor on its own every 30–60 seconds while idle, sitting or walking.
 Visits wait for sleep, work, reactions, climbing and dragging to finish.
+Pointer following also waits for quiet floor states; dragging still carries
+a pet between monitors immediately.
+Autonomous visits wait for the pointer to settle so a visit is not immediately
+undone by pointer following.
 The pet hops to the destination monitor's floor and starts a walk; it never
 walks through empty gaps in an offset or stacked layout. A speech bubble
 travels with it. Off-screen positions recover at the nearest edge of the
@@ -128,6 +132,9 @@ An explicit `petctl goto X` finishes before its member resumes group plans.
 Ordinary walks come from the group plan; naps, climbing and reactions retain
 their own behavior. A failed group-state update logs once and lets that pet
 continue roaming independently.
+If a member cannot see the group's selected monitor (for example, it uses an
+older backend or the monitor was removed), it also continues independently
+instead of repeatedly changing the group's plan.
 A group keeps going if a member quits. Use unique `--name` values so each
 pet also has its own command pipe. Groups support up to 32 pets in the same
 desktop session and runtime directory.
