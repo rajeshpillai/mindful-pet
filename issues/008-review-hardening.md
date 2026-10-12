@@ -26,6 +26,12 @@ Extension checks cover invalid and noninteger versions. Integration checks
 verify one input-mode message across animation frames and successful command
 delivery with an invalid `PYTHONHOME`. All original regressions still pass.
 
+The final review found no release blocker. It also suggested recording an input
+mode only after a successful send; that cache bookkeeping fix is included.
+Monitor changes cancel active drags, and a gesture received during the same
+geometry transition can be discarded. This preserves the geometry update and
+keeps the pet on its monitor.
+
 Source: [gnome.zig](../src/backend/gnome.zig), [main.zig](../src/main.zig),
 [extension.js](../gnome-extension/mindful-pet@rajeshpillai.github.io/extension.js),
 [petctl](../scripts/petctl).

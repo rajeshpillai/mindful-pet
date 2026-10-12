@@ -212,7 +212,7 @@ pub const Window = struct {
         const enabled = rects.len != 0;
         if (self.input_sent) |sent| if (sent == enabled) return;
         self.send(if (enabled) "input 1\n" else "input 0\n");
-        self.input_sent = enabled;
+        if (!self.lost) self.input_sent = enabled;
     }
 
     pub fn queryPointer(self: *Window) PointerPos {
