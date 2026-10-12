@@ -40,3 +40,9 @@ following and dragging between monitors.
 
 GNOME roaming needs extension v0.1.4 loaded after a logout/login. X11 monitor
 selection needs XRandR 1.5+; older servers fall back to root-window geometry.
+
+Review hardened v3 snapshots with a `monitors N` count: screen and monitor
+list publish together after all lines arrive. Malformed monitor entries are
+ignored while still allowing snapshot completion. A final motion and button
+release in one frame now lands the pet instead of leaving it held forever;
+unit and process regressions cover default confinement and grouped carrying.

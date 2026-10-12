@@ -88,6 +88,7 @@ pub fn main(init: std.process.Init) !void {
     var group: ?group_mod.Group = if (roam_group) |n| try group_mod.Group.open(n, nowNs() ^ (@as(u64, @intCast(c.getpid())) << 32)) else null;
     defer if (group) |*g| g.close();
     var group_revision: u64 = 0;
+    var manual_walk = false;
 
     std.debug.print("pet: a {s}{s}{s}\n", .{ character.name, if (instance != null) " named " else "", instance orelse "" });
 
@@ -158,7 +159,7 @@ pub fn main(init: std.process.Init) !void {
         input.pointer_x = @floatFromInt(ptr.x);
         input.pointer_y = @floatFromInt(ptr.y);
         input.pointer_moved = ptr.x != last_ptr.x or ptr.y != last_ptr.y;
-        const follows_pointer = drag != null or group == null or roaming_mod.Roaming.ready(&pet);
+        const follows_pointer = drag != null or input.drag != null or group == null or (!manual_walk and roaming_mod.Roaming.ready(&pet));
         if (roam and follows_pointer and (input.pointer_moved or input.drag != null)) {
             if (win.monitors.at(ptr.x + win.origin_x, ptr.y + win.origin_y)) |m| {
                 requested_monitor = m;
@@ -190,7 +191,10 @@ pub fn main(init: std.process.Init) !void {
 
         if (commands) |*ch| while (ch.pollCommand()) |cmd| switch (cmd) {
             .pet => |e| pet.onEvent(e),
-            .goto => |x| pet.goTo(x),
+            .goto => |x| {
+                pet.goTo(x);
+                manual_walk = group != null and pet.state == .walk;
+            },
             .say => |text| pet.say(text),
             .quit => return,
         };
@@ -198,11 +202,16 @@ pub fn main(init: std.process.Init) !void {
         const now = nowMs();
         const dt: f32 = @floatCast(@min((now - last_ms) / 1000.0, 0.1));
         last_ms = now;
+        pet.autonomous_walk = group == null;
         pet.update(dt, input);
+        if (manual_walk and pet.state != .walk) {
+            manual_walk = false;
+            group_revision = 0;
+        }
         const free_to_roam = drag == null and input.drag == null and !input.drop and !input.clicked;
         if (group) |*g| {
             const current: backend.Monitor = .{ .x = win.origin_x, .y = win.origin_y, .w = win.screen_w, .h = win.screen_h };
-            const ready = free_to_roam and roaming_mod.Roaming.ready(&pet);
+            const ready = free_to_roam and !manual_walk and roaming_mod.Roaming.ready(&pet);
             const polled = g.poll(@intFromFloat(now), size, &win.monitors, current, requested_monitor, ready, prng.random()) catch |err| blk: {
                 std.debug.print("pet: leaving group {s} ({s}); roaming alone\n", .{ roam_group.?, @errorName(err) });
                 g.close();
@@ -219,7 +228,7 @@ pub fn main(init: std.process.Init) !void {
                         bubble_win.useMonitor(m);
                         last_ptr = win.queryPointer();
                     }
-                    if (changed or plan.revision != group_revision or @abs(pet.target_x + pet.size / 2 - plan.target_x) > 1) {
+                    if (changed or plan.revision != group_revision) {
                         pet.goTo(plan.target_x);
                         group_revision = plan.revision;
                         if (debug_events) std.debug.print("pet: group {s} monitor {d},{d} walk to {d:.1}\n", .{ roam_group.?, plan.monitor.x, plan.monitor.y, plan.target_x });

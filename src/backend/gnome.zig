@@ -330,6 +330,28 @@ pub const Window = struct {
             }
             return;
         }
+        if (std.mem.eql(u8, cmd, "monitor")) {
+            if (self.pending) |*p| {
+                var values: [4]i32 = undefined;
+                var n: usize = 0;
+                var valid = true;
+                while (it.next()) |tok| {
+                    if (n == values.len) {
+                        valid = false;
+                        break;
+                    }
+                    values[n] = std.fmt.parseInt(i32, tok, 10) catch {
+                        valid = false;
+                        break;
+                    };
+                    n += 1;
+                }
+                if (valid and n == 4) p.monitors.add(.{ .x = values[0], .y = values[1], .w = values[2], .h = values[3] });
+                p.received += 1;
+                self.publishIfComplete();
+            }
+            return;
+        }
         var nums: [5]i32 = .{ 0, 0, 0, 0, 0 };
         var count: usize = 0;
         while (it.next()) |tok| : (count += 1) {
@@ -341,12 +363,6 @@ pub const Window = struct {
                 p.monitors = .{};
                 p.expected = if (count >= 1 and nums[0] >= 0) @intCast(nums[0]) else null;
                 p.received = 0;
-                self.publishIfComplete();
-            }
-        } else if (std.mem.eql(u8, cmd, "monitor") and count == 4) {
-            if (self.pending) |*p| {
-                p.monitors.add(.{ .x = nums[0], .y = nums[1], .w = nums[2], .h = nums[3] });
-                p.received += 1;
                 self.publishIfComplete();
             }
         } else if (std.mem.eql(u8, cmd, "pointer") and count >= 2) {
@@ -509,6 +525,20 @@ test "monitor lines without the v3 capability leave the primary-only list alone"
     w.handle("monitor 0 0 1920 1080");
     try std.testing.expectEqual(@as(usize, 1), w.monitors.len);
     try std.testing.expectEqual(@as(i32, 710), w.monitors.items[0].x);
+}
+
+test "malformed monitor lines do not strand a complete snapshot" {
+    var w: Window = .{ .sock = -1, .pixels = undefined, .encoded = undefined, .encoded_len = 0, .w = 64, .h = 64, .screen_w = 0, .screen_h = 0 };
+    w.handle("capabilities monitors");
+    w.handle("screen 710 1080 1366 768");
+    w.handle("monitors 3");
+    w.handle("monitor bad values");
+    w.handle("monitor 1 2 3");
+    try std.testing.expectEqual(@as(i32, 0), w.screen_w);
+    w.handle("monitor 0 0 1920 1080");
+    try std.testing.expectEqual(@as(i32, 1366), w.screen_w);
+    try std.testing.expectEqual(@as(usize, 2), w.monitors.len);
+    try std.testing.expect(w.pending == null);
 }
 
 test "disconnect is reported once without reviving the connection" {

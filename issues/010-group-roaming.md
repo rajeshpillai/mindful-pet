@@ -37,3 +37,11 @@ seconds with no live members, the next pet creates a fresh plan.
   that a held file lock does not delay clean quit.
 - Two grouped pets autonomously visited the same second monitor in a real
   headless GNOME Shell, with separated targets and a clean shell log.
+
+Review follow-ups now preserve requested monitor changes across lock
+collisions, fall back to independent roaming after a group polling failure,
+and defer pointer relocation for busy group members. Tests broadcast pointer
+updates to every pet, matching the real extension. Ordinary random walks
+are suppressed while a group plan is active, and explicit `goto` commands
+finish before adopting the group plan again. Targeted process regressions
+cover lock contention, a full group and manual walking.

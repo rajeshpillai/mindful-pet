@@ -81,6 +81,8 @@ pub const Pet = struct {
     /// chosen per chase, so several pets running after the same pointer fan
     /// out beside it instead of piling onto one pixel.
     chase_offset: f32 = 0,
+    /// Group plans choose walks; idle animation, naps and climbing still run.
+    autonomous_walk: bool = true,
     /// Seconds the pointer has rested motionless on top of the cat.
     pointer_rest: f32 = 0,
     bat_cooldown: f32 = 0,
@@ -243,7 +245,7 @@ pub const Pet = struct {
             self.x = self.clampX(d.x);
             self.y = std.math.clamp(d.y, 0, floor);
             if (self.state != .held) self.enter(.held, forever);
-            return;
+            if (!in.drop) return;
         }
         if (in.drop and self.state == .held) {
             if (self.y < floor - 1) {
@@ -447,8 +449,10 @@ pub const Pet = struct {
         const r = self.rand.float(f32);
         if (r < 0.4) {
             self.climb_next = false;
-            self.target_x = self.randRange(0, self.screen_w - self.size);
-            self.enter(.walk, forever);
+            if (self.autonomous_walk) {
+                self.target_x = self.randRange(0, self.screen_w - self.size);
+                self.enter(.walk, forever);
+            } else self.enter(.sit, self.randRange(1, 3));
         } else if (r < 0.55) {
             self.startClimb();
         } else if (r < 0.85) {
@@ -660,6 +664,33 @@ test "off-screen pets and destinations recover in every state on the next frame"
             try std.testing.expect(p.target_y >= 0 and p.target_y <= 536);
         }
     }
+}
+
+test "a final drag and drop in the same frame lands instead of staying held" {
+    var prng = std.Random.DefaultPrng.init(3);
+    var p = Pet.init(prng.random(), &sprites.cat, 800, 600, 64, 32);
+    p.update(0.033, .{ .pointer_x = 100, .pointer_y = 100, .pointer_moved = true, .drag = .{ .x = 80, .y = 80 }, .drop = true });
+    try std.testing.expectEqual(State.fall, p.state);
+    for (0..40) |_| p.update(0.033, still);
+    try std.testing.expectEqual(p.floorY(), p.y);
+    try std.testing.expect(p.state != .held);
+}
+
+test "group mode leaves random walks to the coordinator and permits explicit goto" {
+    var prng = std.Random.DefaultPrng.init(5);
+    var p = Pet.init(prng.random(), &sprites.cat, 800, 600, 64, 32);
+    p.autonomous_walk = false;
+    for (0..100) |_| {
+        p.state = .idle;
+        p.climb_next = false;
+        p.decide();
+        try std.testing.expect(p.state != .walk or p.climb_next);
+    }
+    p.x = 100;
+    p.state = .idle;
+    p.goTo(200);
+    for (0..40) |_| p.update(0.033, still);
+    try std.testing.expectEqual(@as(f32, 168), p.x);
 }
 
 test "small monitors spawn safely and carrying across offset monitors stays visible" {

@@ -152,6 +152,7 @@ pub const Group = struct {
     fd: c_int,
     id: u64,
     next_poll_ms: i64 = 0,
+    pending_monitor: ?geometry.Monitor = null,
 
     pub fn open(name: []const u8, nonce: u64) !Group {
         const dir: []const u8 = if (c.getenv("XDG_RUNTIME_DIR")) |d| std.mem.span(d) else "/tmp";
@@ -173,7 +174,16 @@ pub const Group = struct {
     }
 
     pub fn poll(self: *Group, now: i64, size: u32, monitors: *const geometry.Monitors, current: geometry.Monitor, requested: ?geometry.Monitor, ready: bool, rand: std.Random) !?Plan {
-        if (requested == null and now < self.next_poll_ms) return null;
+        if (requested) |m| self.pending_monitor = m;
+        if (self.pending_monitor) |m| {
+            var exists = false;
+            for (monitors.items[0..monitors.len]) |available| if (std.meta.eql(available, m)) {
+                exists = true;
+                break;
+            };
+            if (!exists) self.pending_monitor = null;
+        }
+        if (self.pending_monitor == null and now < self.next_poll_ms) return null;
         self.next_poll_ms = now + 200;
         if (c.flock(self.fd, c.LOCK_EX | c.LOCK_NB) != 0) {
             const err = std.posix.errno(@as(c_int, -1));
@@ -190,8 +200,9 @@ pub const Group = struct {
         const read = c.pread(self.fd, &state, @sizeOf(Shared), 0);
         if (read < 0) return error.CannotReadRoamingGroup;
         if (read != @sizeOf(Shared) or !state.valid(shared_now)) state = Shared.fresh(shared_now, current, rand);
-        const plan = try state.advance(self.id, size, shared_now, monitors, current, requested, ready, rand);
+        const plan = try state.advance(self.id, size, shared_now, monitors, current, self.pending_monitor, ready, rand);
         if (c.pwrite(self.fd, &state, @sizeOf(Shared), 0) != @sizeOf(Shared)) return error.CannotWriteRoamingGroup;
+        self.pending_monitor = null;
         return plan;
     }
 };

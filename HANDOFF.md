@@ -115,6 +115,17 @@ History in short (`git log --oneline` has the rest):
   integration regressions. Notes: `issues/010-group-roaming.md`.
   In headless GNOME, a cat and dog in the same group autonomously visited
   the second monitor with destinations 80 pixels apart and a clean shell log.
+- Final roaming checks: group requests survive non-blocking lock collisions;
+  malformed monitor lines count toward snapshot completion without adding bad
+  rectangles. Group plans choose ordinary walks instead of repeatedly undoing
+  the brain's random targets. Manual `goto` completes before a pet rejoins.
+  A final motion plus release in one input frame now drops normally (previously
+  the drag branch returned early and left the pet held forever); grouped
+  carrying also follows that final motion across monitors. Unit counts are
+  auto/GNOME 34 each and X11 25, with seventeen socket/FIFO regressions and
+  two Xvfb checks. The complete-snapshot protocol also passed a two-pet
+  autonomous visit in real headless GNOME. Layout changes deliberately recover
+  to primary; the existing backwards-walking observation still needs reproduction.
 
 ## Environment facts that shaped the design
 
@@ -238,4 +249,5 @@ pick sound clip names (add clips in tools/gen_sounds.py and the `clips`
 table in main.zig's Audio), and append it to `sprites.all`.
 
 Multiple instances are separate processes; `--name` picks pet-NAME.fifo and
-`petctl -n NAME` / `PET_NAME` address it. They do not know about each other.
+`petctl -n NAME` / `PET_NAME` address it. By default they act independently;
+`--roam-group NAME` shares monitor visits and walking plans with that group.

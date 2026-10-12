@@ -124,6 +124,10 @@ based on their body sizes. They pick another destination every 8–16 seconds
 and visit another monitor every 30–60 seconds. Moving or dragging one member
 to another monitor brings available group members along; busy, sleeping or
 carried pets rejoin when free. Different group names travel independently.
+An explicit `petctl goto X` finishes before its member resumes group plans.
+Ordinary walks come from the group plan; naps, climbing and reactions retain
+their own behavior. A failed group-state update logs once and lets that pet
+continue roaming independently.
 A group keeps going if a member quits. Use unique `--name` values so each
 pet also has its own command pipe. Groups support up to 32 pets in the same
 desktop session and runtime directory.

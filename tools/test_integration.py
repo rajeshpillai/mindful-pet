@@ -93,7 +93,7 @@ class FakeShell:
 
 
 class Integration(unittest.TestCase):
-    def start(self, legacy=False, scale=4, roam=False):
+    def start(self, legacy=False, scale=4, roam=False, roam_group=None):
         temp = tempfile.TemporaryDirectory(prefix="mp-regression-")
         self.addCleanup(temp.cleanup)
         runtime = Path(temp.name)
@@ -103,6 +103,8 @@ class Integration(unittest.TestCase):
         args = [str(BINARY), "--mute", "--name", "regression", "--scale", str(scale)]
         if roam:
             args.append("--roam")
+        if roam_group:
+            args.extend(["--roam-group", roam_group])
         pet = subprocess.Popen(args, env=env,
                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         def cleanup():
@@ -204,6 +206,64 @@ class Integration(unittest.TestCase):
         wait_for(lambda: primary["moves"][-1] == (980, 1280))
         primary["conn"].sendall(b"release 1 1000 1300\n")
         wait_for(lambda: primary["moves"][-1][1] == 1784)
+        self.command(fifo, "quit")
+        self.assertEqual(pet.wait(timeout=1), 0)
+
+    def test_final_motion_and_release_in_one_frame_lands_in_default_and_group_modes(self):
+        for group in (None, "drop-order"):
+            with self.subTest(group=group):
+                shell, pet, fifo = self.start(roam_group=group)
+                primary = next(w for w in shell.windows if w["primary"])
+                self.command(fifo, "work")
+                wait_for(lambda: bool(primary["moves"]))
+                x, y = primary["moves"][-1]
+                count = len(primary["moves"])
+                primary["conn"].sendall(f"press 1 {x+20} {y+20} 20 20\npointer 100 500\nrelease 1 100 500\n".encode())
+                wait_for(lambda: any(my < 1784 for _, my in primary["moves"][count:]))
+                floor = 1016 if group else 1784
+                wait_for(lambda: primary["moves"][-1][1] == floor)
+                self.command(fifo, "quit")
+                self.assertEqual(pet.wait(timeout=1), 0)
+
+    def test_group_monitor_request_survives_lock_contention(self):
+        import fcntl
+        shell, pet, fifo = self.start(roam_group="contended")
+        primary = next(w for w in shell.windows if w["primary"])
+        path = fifo.parent / f"pet-roam-{os.geteuid()}-contended.state"
+        wait_for(lambda: path.exists() and path.stat().st_size > 0)
+        with path.open("rb") as plan:
+            fcntl.flock(plan, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            primary["conn"].sendall(b"pointer 100 500\n")
+            wait_for(lambda: primary["moves"][-1][1] == 1016)
+            time.sleep(0.1)
+            fcntl.flock(plan, fcntl.LOCK_UN)
+        # No further pointer event: the pending request must reach the group file.
+        time.sleep(0.5)
+        self.assertEqual(primary["moves"][-1][1], 1016)
+        with path.open("rb") as plan:
+            header = struct.unpack("<QqqqQiiiiII", plan.read(64))
+        self.assertEqual(header[5:9], STACKED[0])
+        self.command(fifo, "quit")
+        self.assertEqual(pet.wait(timeout=1), 0)
+
+    def test_group_goto_walk_is_not_overridden_by_a_shared_plan(self):
+        shell, pet, fifo = self.start(roam_group="manual-walk")
+        primary = next(w for w in shell.windows if w["primary"])
+        path = fifo.parent / f"pet-roam-{os.geteuid()}-manual-walk.state"
+        wait_for(lambda: path.exists() and path.stat().st_size > 0 and bool(primary["moves"]))
+        self.command(fifo, "work")
+        time.sleep(0.1)
+        x, y = primary["moves"][-1]
+        primary["conn"].sendall(f"press 1 {x+20} {y+20} 20 20\npointer 1380 1804\nrelease 1 1380 1804\n".encode())
+        wait_for(lambda: primary["moves"][-1] == (1360, 1784))
+        with path.open("rb") as plan:
+            header = struct.unpack("<QqqqQiiiiII", plan.read(64))
+        direction = 1 if header[9] / 1_000_000 * 1366 > 682 else -1
+        start = primary["moves"][-1][0]
+        # Walk away from the group's current destination for over a poll interval.
+        target = 32 if direction > 0 else 1334
+        self.command(fifo, f"goto {target}")
+        wait_for(lambda: -direction * (primary["moves"][-1][0] - start) >= 40)
         self.command(fifo, "quit")
         self.assertEqual(pet.wait(timeout=1), 0)
 
