@@ -137,6 +137,18 @@ History in short (`git log --oneline` has the rest):
   two Xvfb checks and extension checks passed on the ReleaseSafe build.
   The automated review identified these cases but its Claude fix agent exhausted
   its usage allowance; the fixes were completed locally and tested.
+- Codex review completed with no remaining findings. Its fixes separate
+  autonomous `walkTo` from command `goTo`, preserving the inactivity timer so
+  both solo/group pets still nap. Monitor snapshots accept at most 32 entries
+  and expire after one second to primary-only geometry; a later valid snapshot
+  restores the complete list. Older protocol test fixtures now use defaults
+  instead of reading uninitialized capability fields. The original review-tool
+  agent configuration was restored after validation.
+  Final source at 63a7197 passed auto/GNOME unit suites (38 each), X11 (27),
+  twenty-one socket/FIFO regressions, two real Xvfb checks, extension checks,
+  formatting and diff checks. Against that exact source, two pets autonomously
+  visited the same second monitor in headless GNOME, 80 pixels apart, and quit
+  cleanly; the shell log was clean.
 
 ## Environment facts that shaped the design
 

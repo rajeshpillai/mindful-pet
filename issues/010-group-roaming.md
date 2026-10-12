@@ -50,3 +50,7 @@ it does not rewrite the plan every frame. A member that cannot see the shared
 monitor drops to solo roaming without changing other members' plans, avoiding
 churn between legacy/current backends or after monitor removal. Unit and process
 tests cover both cases.
+Autonomous plans use `walkTo`, which preserves inactivity; command `goto`
+still resets it. This keeps the 45-second automatic nap behavior despite group
+plans every 8–16 seconds. A state-machine regression exercises repeated plans
+followed by a nap, then an explicit command.

@@ -49,3 +49,7 @@ unit and process regressions cover default confinement and grouped carrying.
 Malformed monitor-count headers now publish primary-only geometry. Solo pointer
 following, like grouped following, waits for quiet floor states; carrying is
 still immediate. Regressions cover sleeping/working pets and resuming visits.
+Counts above the supported 32 monitors also fall back safely. An incomplete
+snapshot expires after one second to primary-only geometry, at startup or
+hotplug; a later valid snapshot restores roaming. Unit and socket tests cover
+these recoveries, and parser fixtures now initialize all capability defaults.
