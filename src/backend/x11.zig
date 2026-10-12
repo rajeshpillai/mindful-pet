@@ -116,34 +116,34 @@ pub const Window = struct {
         return c.XConnectionNumber(self.dpy);
     }
 
-    pub fn show(self: *const Window) void {
+    pub fn show(self: *Window) void {
         _ = c.XMapRaised(self.dpy, self.win);
     }
 
-    pub fn hide(self: *const Window) void {
+    pub fn hide(self: *Window) void {
         _ = c.XUnmapWindow(self.dpy, self.win);
     }
 
-    pub fn move(self: *const Window, x: i32, y: i32) void {
+    pub fn move(self: *Window, x: i32, y: i32) void {
         _ = c.XMoveWindow(self.dpy, self.win, x, y);
     }
 
-    pub fn raise(self: *const Window) void {
+    pub fn raise(self: *Window) void {
         _ = c.XRaiseWindow(self.dpy, self.win);
     }
 
     /// Blit the whole pixel buffer to the window.
-    pub fn present(self: *const Window) void {
+    pub fn present(self: *Window) void {
         _ = c.XPutImage(self.dpy, self.win, self.gc, self.img, 0, 0, 0, 0, self.w, self.h);
     }
 
-    pub fn flush(self: *const Window) void {
+    pub fn flush(self: *Window) void {
         _ = c.XFlush(self.dpy);
     }
 
     /// Only these rectangles receive mouse input; everything else clicks
     /// through. An empty slice makes the whole window click-through.
-    pub fn setInputShape(self: *const Window, rects: []const Rect) void {
+    pub fn setInputShape(self: *Window, rects: []const Rect) void {
         var none: [1]c.XRectangle = undefined;
         const ptr: [*c]c.XRectangle = if (rects.len == 0) &none else @ptrCast(@constCast(rects.ptr));
         const region = c.XFixesCreateRegion(self.dpy, ptr, @intCast(rects.len));
@@ -151,7 +151,7 @@ pub const Window = struct {
         c.XFixesDestroyRegion(self.dpy, region);
     }
 
-    pub fn queryPointer(self: *const Window) PointerPos {
+    pub fn queryPointer(self: *Window) PointerPos {
         var root_ret: c.Window = 0;
         var child: c.Window = 0;
         var rx: c_int = 0;
@@ -164,7 +164,7 @@ pub const Window = struct {
     }
 
     /// Drain one event we care about; null when the queue holds nothing useful.
-    pub fn pollEvent(self: *const Window) ?Event {
+    pub fn pollEvent(self: *Window) ?Event {
         while (c.XPending(self.dpy) > 0) {
             var ev: c.XEvent = undefined;
             _ = c.XNextEvent(self.dpy, &ev);

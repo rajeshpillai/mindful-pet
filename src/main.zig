@@ -261,7 +261,7 @@ fn render(dst: [*]u32, frame: *const sprites.Frame, transform: petmod.Transform,
 }
 
 /// Build horizontal runs of opaque pixels so only the cat itself is clickable.
-fn applyInputShape(win: *const backend.Window) void {
+fn applyInputShape(win: *backend.Window) void {
     var rects: [sprites.W * max_scale * (sprites.W / 2 + 1)]backend.Rect = undefined;
     var n: usize = 0;
     for (0..size) |y| {

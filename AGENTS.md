@@ -13,8 +13,8 @@ code name; the repo is github.com/rajeshpillai/mindful-pets.
 ## Commands the user gives
 
 - **"ship it" or "deploy"**: run `scripts/ship`. It builds with
-  `-Doptimize=ReleaseSafe` and copies `pet` and `petctl` into
-  `~/Desktop/tools`. Commit and push first if there are changes, then ship.
+  `-Doptimize=ReleaseSafe` and copies `pet` (X11), `pet-gnome` and `petctl`
+  into `~/Desktop/tools`. Commit and push first if there are changes, then ship.
 - Zig reference: https://ziglang.in (the user's own site), tracks master.
 
 ## Build, test, check
@@ -41,6 +41,9 @@ src/sprites.zig     Frame format, palette, orientation mapping, Character struct
 src/characters/     cat.zig, dog.zig, rabbit.zig (16x16 ASCII art, facing right)
 src/backend.zig     window backend interface: shared types, comptime selection, contract check
 src/backend/x11.zig Xlib implementation: window creation, XImage blit, XFixes input shape
+src/backend/gnome.zig  client of the GNOME Shell extension over a Unix socket; protocol in extension.js
+gnome-extension/    mindful-pet@rajeshpillai.github.io: GJS extension, one Clutter actor per pet window
+scripts/install-extension  copy the extension into ~/.local/share/gnome-shell/extensions and enable it
 src/events.zig      command vocabulary + parser (shared by every channel)
 src/channel.zig     command channel interface, chosen by OS; channel/fifo.zig is the named pipe
 src/audio.zig       embedded WAV clips + playback interface, chosen by OS; audio/shell.zig shells out to a player
@@ -64,6 +67,20 @@ tools/sheet.zig     sprite sheet dump; tools/gen_sounds.py regenerates src/asset
   second. xdotool works under XWayland for click/drag tests.
 - A Claude Code settings file created mid-session is not loaded until
   `/hooks` or a restart.
+- GNOME Shell on Wayland loads a new or changed extension only after logging
+  out and in. Test the extension in a nested shell instead:
+  `dbus-run-session -- gnome-shell --nested --wayland` with
+  `MUTTER_DEBUG_DUMMY_MODE_SPECS=1280x800`, started with `env -i` and a
+  minimal environment. The shell inherited from the VS Code snap carries
+  `GSETTINGS_SCHEMA_DIR`, `XDG_DATA_DIRS` and snap library paths that make
+  gnome-shell abort (schema key missing, then a core20 libpthread symbol
+  error). The nested shell reads the same dconf, so enable the extension with
+  `gsettings set org.gnome.shell enabled-extensions` if `gnome-extensions
+  enable` says it does not exist. Its log is the only view you get: no
+  screenshots of a nested shell either.
+- The `gnome` backend quits when the socket closes (extension disabled,
+  shell restarted); it reports that as a right-click so main.zig needs no
+  special case.
 
 ## Conventions
 

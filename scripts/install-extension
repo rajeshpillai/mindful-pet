@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Install (or update) the GNOME Shell extension for the `gnome` backend into
+# the user's extension directory and enable it. GNOME Shell on Wayland loads a
+# brand-new extension only after logging out and in; an update to an already
+# loaded one needs the same. Enabling and disabling is instant.
+set -euo pipefail
+uuid="mindful-pet@rajeshpillai.github.io"
+src="$(cd "$(dirname "$0")/.." && pwd)/gnome-extension/$uuid"
+dest="$HOME/.local/share/gnome-shell/extensions/$uuid"
+
+mkdir -p "$(dirname "$dest")"
+rm -rf "$dest"
+cp -r "$src" "$dest"
+gnome-extensions enable "$uuid" 2>/dev/null || true
+state=$( (gnome-extensions info "$uuid" 2>/dev/null || true) | sed -n 's/^ *State: //p')
+echo "installed $uuid -> $dest (state: ${state:-not loaded yet})"
+case "${state:-}" in
+  ACTIVE|ENABLED) echo "ready: zig build -Dbackend=gnome && zig-out/bin/pet" ;;
+  *) echo "log out and back in (or Alt+F2 'r' on X11), then run the pet built with -Dbackend=gnome" ;;
+esac

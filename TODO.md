@@ -43,10 +43,15 @@ agreed to tackle things; it is not a promise.
 
 - [x] Backend interface: `src/backend.zig` with comptime selection via
       `-Dbackend`, X11 moved to `src/backend/x11.zig`
-- [ ] GNOME Shell extension backend: draws the sprite where the Zig core
-      says over a Unix socket, reports pointer position and window geometry
+- [x] GNOME Shell extension backend: draws the sprite where the Zig core
+      says over a Unix socket, reports pointer position (`-Dbackend=gnome`,
+      `gnome-extension/`, `scripts/install-extension`)
+- [ ] Verify the GNOME backend by hand in the real session after a re-login:
+      pointer chase over native windows, click, drag, right-click quit
+- [ ] Extension reports window geometry (title bars, edges) to the pet
+- [ ] `auto` backend: try the extension socket, fall back to X11
 - [ ] Sit on window title bars, walk along window edges
-- [ ] Cursor chase over native Wayland windows
+- [x] Cursor chase over native Wayland windows (via the GNOME backend)
 
 ## 6. Other platforms
 

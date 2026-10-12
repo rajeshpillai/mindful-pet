@@ -28,8 +28,13 @@ Everything is committed; the tree is clean.
   XWayland. Cursor chasing therefore only works when the pointer is over X11
   windows or the cat itself. The long-term fix is a small GNOME Shell
   extension that draws where the Zig core says, over a Unix socket. All
-  compositor code is isolated behind `src/backend.zig` (implementation in
-  `src/backend/x11.zig`) for that reason.
+  compositor code is isolated behind `src/backend.zig` for that reason. Done
+  on 2026-10-12: `src/backend/gnome.zig` plus `gnome-extension/`, tested
+  against a nested shell (hello/screen/img/move/say/quit round trip, clean
+  exit). Not yet tested in the real session: that needs a re-login so GNOME
+  loads the extension, then `pet-gnome` from ~/Desktop/tools. Pointer
+  chasing over native windows, click, drag and right-click-quit through the
+  extension are implemented but unverified by hand.
 - No SDL or raylib installed; Zig bindings for them lag master anyway. Pure
   Xlib via `b.addTranslateC` (the `@cImport` builtin is gone in 0.17).
 - The user's own site https://ziglang.in is the Zig reference to use. Its
@@ -102,6 +107,8 @@ src/backend.zig  backend interface: Window contract, Event/Rect/PointerPos, wait
 src/channel.zig  command channel interface (by OS); channel/fifo.zig = named pipe
 src/audio.zig    clips + Audio interface (by OS); audio/shell.zig = pw-play/paplay/aplay/afplay/ffplay
 src/backend/x11.zig  Xlib Window.init/present/move/setInputShape/queryPointer/pollEvent
+src/backend/gnome.zig  socket client: hello/img/move/show/hide/raise out, screen/pointer/press/release in
+gnome-extension/     extension.js: SocketService, PetWindow (Clutter.Image actor, alpha hit-test, 30 Hz pointer)
 src/events.zig   Command union and parse(); the pipe itself is in channel/fifo.zig
 src/c.h          headers for the translate-c step
 scripts/petctl   pipe writer; `petctl run CMD` wraps a command

@@ -1,11 +1,11 @@
 //! Window backend selection. Everything outside this file and `src/backend/`
 //! talks to `Window`, `wait` and the shared types below; only a backend knows
-//! how its compositor works. Today there is one backend, X11 (also used under
-//! XWayland). Planned ones slot in beside it: a GNOME Shell extension speaking
-//! over a Unix socket, AppKit on macOS, Win32 layered windows on Windows.
+//! how its compositor works. Backends: `x11` (Xlib, also used under XWayland)
+//! and `gnome` (a Clutter actor drawn by the GNOME Shell extension in
+//! gnome-extension/, over a Unix socket). Planned: AppKit on macOS, Win32
+//! layered windows on Windows.
 //!
-//! Pick a backend with `zig build -Dbackend=x11`; the default is chosen in
-//! build.zig from the target OS.
+//! Pick one with `zig build -Dbackend=gnome`; the default is x11.
 
 const std = @import("std");
 const options = @import("build_options");
@@ -15,6 +15,7 @@ pub const kind: Kind = options.backend;
 
 const impl = switch (kind) {
     .x11 => @import("backend/x11.zig"),
+    .gnome => @import("backend/gnome.zig"),
 };
 
 /// Human-readable backend name for the startup log.
@@ -55,15 +56,15 @@ comptime {
     const required_fns = [_][]const u8{
         "init", // fn (w: u32, h: u32) Error!Window
         "deinit", // fn (*Window) void
-        "show", // fn (*const Window) void
-        "hide", // fn (*const Window) void
-        "move", // fn (*const Window, x: i32, y: i32) void       screen coordinates
-        "raise", // fn (*const Window) void                       bring to the top
-        "present", // fn (*const Window) void                     blit `pixels`
-        "flush", // fn (*const Window) void                       push queued requests
-        "setInputShape", // fn (*const Window, []const Rect) void  clicks outside fall through
-        "queryPointer", // fn (*const Window) PointerPos
-        "pollEvent", // fn (*const Window) ?Event                 null when the queue is empty
+        "show", // fn (*Window) void
+        "hide", // fn (*Window) void
+        "move", // fn (*Window, x: i32, y: i32) void             screen coordinates
+        "raise", // fn (*Window) void                             bring to the top
+        "present", // fn (*Window) void                           blit `pixels`
+        "flush", // fn (*Window) void                             push queued requests
+        "setInputShape", // fn (*Window, []const Rect) void        clicks outside fall through
+        "queryPointer", // fn (*Window) PointerPos
+        "pollEvent", // fn (*Window) ?Event                       null when the queue is empty
     };
     for (required_fns) |f| {
         if (!@hasDecl(Window, f)) @compileError("backend " ++ name ++ ": Window is missing `" ++ f ++ "`");

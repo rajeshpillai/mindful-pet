@@ -12,7 +12,8 @@ desktop it runs through XWayland. See [Limitations](#limitations).
 
 - Zig master (built against `0.17.0-dev.2056`, see `build.zig.zon`)
 - X11 development headers and libraries: `libx11-dev`, `libxfixes-dev`, `libxext-dev`
-  (Debian/Ubuntu names; the runtime needs `libX11`, `libXfixes`, `libXext`)
+  (Debian/Ubuntu names; the runtime needs `libX11`, `libXfixes`, `libXext`).
+  Not needed for the GNOME backend below.
 - An X server or XWayland with a 32-bit ARGB visual (any compositing desktop)
 - For sound, one of `pw-play`, `paplay`, `aplay` or `ffplay` on PATH (optional)
 
@@ -162,7 +163,10 @@ src/pet.zig      the state machine (idle, walk, run, sit, sleep, alert, happy, a
 src/sprites.zig  frame format, palette, orientation mapping, Character struct
 src/characters/  cat.zig, dog.zig, rabbit.zig: 16x16 ASCII frames per animal
 src/backend.zig  window backend interface and selection (`zig build -Dbackend=x11`)
-src/backend/     x11.zig: transparent override-redirect window, XImage blit, XFixes input shape
+src/backend/     x11.zig: override-redirect window, XImage blit, XFixes input shape;
+                 gnome.zig: Unix-socket client of the GNOME Shell extension
+gnome-extension/ the GNOME Shell extension (one Clutter actor per pet window)
+scripts/install-extension  copies it into place and enables it
 src/events.zig   command vocabulary and parser
 src/channel.zig  command channel interface; channel/fifo.zig is the named pipe
 src/audio.zig    embedded sound clips and playback interface; audio/shell.zig runs a CLI player
@@ -181,15 +185,32 @@ in `src/sprites.zig`) and run `zig build sheet` to check the result. To add
 an animal, copy one of those files, register it in `sprites.all`, and give it
 sound clip names from `src/assets/` (or null for silence).
 
+## GNOME Shell backend
+
+By default the pet is an X11 client. Under GNOME on Wayland that means it runs
+in XWayland and goes blind whenever the pointer is over a native window. The
+`gnome` backend fixes that: the pet becomes a Clutter actor drawn by a small
+GNOME Shell extension, which sees the pointer everywhere and keeps the pet
+above native windows. The Zig program is unchanged apart from the window layer;
+it talks to the extension over a Unix socket.
+
+```sh
+scripts/install-extension          # copies gnome-extension/ into ~/.local/share/gnome-shell/extensions
+# log out and back in once, so GNOME Shell loads the new extension
+zig build -Dbackend=gnome && zig-out/bin/pet
+```
+
+`scripts/ship` installs this build as `pet-gnome` next to the X11 `pet`. If the
+extension is not running, the pet says so and exits. GNOME 46 to 48.
+
 ## Limitations
 
-- **Wayland.** The cat is an X11 client, so under GNOME Wayland it lives in
-  XWayland. It cannot see the pointer while the pointer is over native Wayland
-  windows, so cursor chasing only works over X11 applications and the cat
-  itself. It also cannot sit on top of native windows reliably. The planned fix
-  is a small GNOME Shell extension that draws the sprite where this Zig core
-  tells it to; the core already keeps all compositor-specific code behind
-  the backend interface in `src/backend.zig`.
+- **Wayland with the X11 backend.** The cat is an X11 client, so under GNOME
+  Wayland it lives in XWayland. It cannot see the pointer while the pointer is
+  over native Wayland windows, so cursor chasing only works over X11
+  applications and the cat itself, and it cannot sit on top of native windows
+  reliably. Use the GNOME backend above, or on other Wayland compositors wait
+  for a wlr-layer-shell backend.
 - The top edge is the screen's, not your editor's. Climbing an application
   window needs window geometry, which is the same Wayland gap as above.
 - Single monitor. It uses the root window size of the default screen.
