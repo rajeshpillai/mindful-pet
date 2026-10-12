@@ -3,7 +3,8 @@
 # touching the real session: private XDG_RUNTIME_DIR, private GSettings
 # (keyfile backend), its own D-Bus. The real shell keeps whatever copy of the
 # extension it has loaded; this one loads the files currently installed in
-# ~/.local/share/gnome-shell/extensions (run scripts/install-extension first).
+# ~/.local/share/gnome-shell/extensions (run scripts/install-extension first),
+# or the directory given with --ext, which must be the first argument.
 #
 #   scripts/nested-shell                 # foreground; Ctrl-C stops it
 #   scripts/nested-shell --ext gnome-extension/mindful-pet@rajeshpillai.github.io

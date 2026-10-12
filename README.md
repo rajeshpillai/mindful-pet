@@ -240,8 +240,9 @@ the pet exits cleanly.
   window needs window geometry, which is the same Wayland gap as above.
 - The GNOME backend stays on the primary monitor. The X11 backend uses the
   whole root-window size; monitor selection is still on the roadmap.
-- **Linux only** for now. Windowing is X11, commands arrive on a POSIX named
-  pipe, and sounds go through pw-play/paplay/aplay/ffplay. Any X11 desktop
-  with a compositor works, and so does XWayland on GNOME, KDE or Sway. macOS
-  and Windows need a backend of their own; see TODO.md.
+- **Linux only** for now. Windowing is X11 or the GNOME Shell extension,
+  commands arrive on a POSIX named pipe, and sounds go through
+  pw-play/paplay/aplay/ffplay. Any X11 desktop with a compositor works, and
+  so does XWayland on GNOME, KDE or Sway. macOS and Windows need a backend of
+  their own; see TODO.md.
 - Sounds are synthesized placeholders; real recordings are on the roadmap.

@@ -147,7 +147,7 @@ Ordered as discussed on 2026-10-12, after the hand test above:
 ## Code map
 
 ```
-src/main.zig     event loop, --scale/--help parsing, render(), input shape
+src/main.zig     event loop, --scale/--help parsing, render(), input shape; resizes the pet on screen_changed, quits on disconnected
 src/pet.zig      Pet struct, State/Event enums, update(), frame(), resize() after monitor changes, chaseTarget()
 src/sprites.zig  Frame/palette/Transform/source(), Character struct, `all` + byName()
 src/characters/  cat.zig, dog.zig, rabbit.zig; each exports `character`
