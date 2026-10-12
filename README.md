@@ -163,10 +163,12 @@ src/sprites.zig  frame format, palette, orientation mapping, Character struct
 src/characters/  cat.zig, dog.zig, rabbit.zig: 16x16 ASCII frames per animal
 src/backend.zig  window backend interface and selection (`zig build -Dbackend=x11`)
 src/backend/     x11.zig: transparent override-redirect window, XImage blit, XFixes input shape
-src/events.zig   named-pipe command reader and parser
+src/events.zig   command vocabulary and parser
+src/channel.zig  command channel interface; channel/fifo.zig is the named pipe
+src/audio.zig    embedded sound clips and playback interface; audio/shell.zig runs a CLI player
 src/font.zig     3x5 bitmap font and the speech-bubble renderer
 src/c.h          the C headers translated by build.zig (Xlib, XFixes, libc bits)
-src/assets/      meow/purr/hiss WAVs, embedded at build time
+src/assets/      WAV clips, embedded at build time by src/audio.zig
 tools/gen_sounds.py  regenerates those clips (stdlib Python)
 tools/sheet.zig  renders all frames to a PPM for reviewing the art
 scripts/petctl   send a command to the pipe, or wrap a command and report its result

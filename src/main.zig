@@ -3,7 +3,8 @@ const c = @import("c");
 const backend = @import("backend.zig");
 const petmod = @import("pet.zig");
 const sprites = @import("sprites.zig");
-const events = @import("events.zig");
+const channel = @import("channel.zig");
+const audio_mod = @import("audio.zig");
 const font = @import("font.zig");
 
 const default_scale: u32 = 4;
@@ -59,11 +60,11 @@ pub fn main(init: std.process.Init) !void {
     var bubble_len: usize = 0;
     var bubble_layout = bubble_max;
 
-    var fifo: ?events.Fifo = events.Fifo.open(instance) catch |err| blk: {
-        std.debug.print("pet: no command fifo ({s})\n", .{@errorName(err)});
+    var commands: ?channel.Channel = channel.Channel.open(instance) catch |err| blk: {
+        std.debug.print("pet: no command channel ({s})\n", .{@errorName(err)});
         break :blk null;
     };
-    defer if (fifo) |*f| f.close();
+    defer if (commands) |*ch| ch.close();
 
     var prng = std.Random.DefaultPrng.init(@intCast(nowNs()));
     var pet = petmod.Pet.init(
@@ -75,12 +76,12 @@ pub fn main(init: std.process.Init) !void {
         @floatFromInt(top),
     );
 
-    var audio = Audio.init(!mute);
+    var audio = audio_mod.Audio.init(!mute);
 
     std.debug.print("pet: a {s}{s}{s}\n", .{ character.name, if (instance != null) " named " else "", instance orelse "" });
 
     std.debug.print("pet: {d}x{d} screen, {s} window ({s} backend)\n", .{ win.screen_w, win.screen_h, if (win.argb) "transparent" else "opaque (no ARGB visual)", backend.name });
-    if (fifo) |f| std.debug.print("pet: commands via  echo fail > {s}\n", .{f.path()});
+    if (commands) |ch| std.debug.print("pet: commands via  echo fail > {s}\n", .{ch.path()});
     std.debug.print("pet: left-click = meow, drag = carry, right-click = quit\n", .{});
 
     var last_ms = nowMs();
@@ -93,7 +94,7 @@ pub fn main(init: std.process.Init) !void {
     var bubble_logged = false;
 
     while (true) {
-        backend.wait(&.{ &win, &bubble_win }, if (fifo) |f| f.fd else null, frame_ms);
+        backend.wait(&.{ &win, &bubble_win }, if (commands) |ch| ch.wakeFd() else null, frame_ms);
 
         var input: petmod.Input = .{ .pointer_x = 0, .pointer_y = 0, .pointer_moved = false };
 
@@ -130,7 +131,7 @@ pub fn main(init: std.process.Init) !void {
         input.pointer_moved = ptr.x != last_ptr.x or ptr.y != last_ptr.y;
         last_ptr = ptr;
 
-        if (fifo) |*f| while (f.pollCommand()) |cmd| switch (cmd) {
+        if (commands) |*ch| while (ch.pollCommand()) |cmd| switch (cmd) {
             .pet => |e| pet.onEvent(e),
             .goto => |x| pet.goTo(x),
             .say => |text| pet.say(text),
@@ -258,67 +259,6 @@ fn render(dst: [*]u32, frame: *const sprites.Frame, transform: petmod.Transform,
         }
     }
 }
-
-/// Plays the cat's sounds through whatever command-line player is installed.
-/// The clips are embedded in the binary and written to the runtime dir once.
-const Audio = struct {
-    enabled: bool,
-    dir: [256:0]u8 = undefined,
-    dir_len: usize = 0,
-    player: []const u8 = "",
-
-    const clips = [_]struct { name: []const u8, data: []const u8 }{
-        .{ .name = "meow", .data = @embedFile("assets/meow.wav") },
-        .{ .name = "purr", .data = @embedFile("assets/purr.wav") },
-        .{ .name = "hiss", .data = @embedFile("assets/hiss.wav") },
-        .{ .name = "woof", .data = @embedFile("assets/woof.wav") },
-        .{ .name = "pant", .data = @embedFile("assets/pant.wav") },
-        .{ .name = "growl", .data = @embedFile("assets/growl.wav") },
-        .{ .name = "squeak", .data = @embedFile("assets/squeak.wav") },
-        .{ .name = "thump", .data = @embedFile("assets/thump.wav") },
-    };
-    /// Tried in order; the first one found on PATH wins.
-    const players = [_][]const u8{ "pw-play", "paplay", "aplay", "ffplay -nodisp -autoexit -loglevel quiet" };
-
-    fn init(enabled: bool) Audio {
-        var a: Audio = .{ .enabled = enabled };
-        if (!enabled) return a;
-
-        a.player = for (players) |p| {
-            var probe: [128:0]u8 = undefined;
-            const exe = std.mem.sliceTo(p, ' ');
-            const cmd = std.mem.printSentinel(&probe, "command -v {s} >/dev/null 2>&1", .{exe}, 0) catch continue;
-            if (c.system(cmd.ptr) == 0) break p;
-        } else {
-            std.debug.print("pet: no audio player found (tried pw-play, paplay, aplay, ffplay); running silent\n", .{});
-            a.enabled = false;
-            return a;
-        };
-
-        const base: []const u8 = if (c.getenv("XDG_RUNTIME_DIR")) |d| std.mem.span(d) else "/tmp";
-        const dir = std.mem.printSentinel(&a.dir, "{s}/pet-sounds", .{base}, 0) catch {
-            a.enabled = false;
-            return a;
-        };
-        a.dir_len = dir.len;
-        _ = c.mkdir(dir.ptr, 0o700);
-        for (clips) |clip| {
-            var path: [300:0]u8 = undefined;
-            const p = std.mem.printSentinel(&path, "{s}/{s}.wav", .{ dir, clip.name }, 0) catch continue;
-            const f = c.fopen(p.ptr, "wb") orelse continue;
-            _ = c.fwrite(clip.data.ptr, 1, clip.data.len, f);
-            _ = c.fclose(f);
-        }
-        return a;
-    }
-
-    fn play(self: *const Audio, clip: []const u8) void {
-        if (!self.enabled) return;
-        var cmd: [512:0]u8 = undefined;
-        const line = std.mem.printSentinel(&cmd, "{s} '{s}/{s}.wav' >/dev/null 2>&1 &", .{ self.player, self.dir[0..self.dir_len], clip }, 0) catch return;
-        _ = c.system(line.ptr);
-    }
-};
 
 /// Build horizontal runs of opaque pixels so only the cat itself is clickable.
 fn applyInputShape(win: *const backend.Window) void {

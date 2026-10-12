@@ -61,7 +61,10 @@ contract). The pipe and shell-audio code are POSIX and also need a home.
 - [ ] Native Wayland: not as a plain client (no absolute placement or global
       pointer); the GNOME Shell extension above is the route on GNOME,
       wlr-layer-shell could serve Sway/Hyprland
-- [ ] Move the command channel and audio behind small interfaces too
+- [x] Move the command channel and audio behind small interfaces too
+      (`src/channel.zig`, `src/audio.zig`, selected on `builtin.os.tag`)
+- [ ] Replace the libc `getenv`/`clock_gettime` left in main.zig with the
+      `std.Io` equivalents once that API settles
 
 ## 7. Art pipeline
 

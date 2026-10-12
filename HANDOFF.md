@@ -99,6 +99,8 @@ src/sprites.zig  Frame/palette/Transform/source(), Character struct, `all` + byN
 src/characters/  cat.zig, dog.zig, rabbit.zig; each exports `character`
 src/font.zig     3x5 font + drawBubble()
 src/backend.zig  backend interface: Window contract, Event/Rect/PointerPos, wait, -Dbackend
+src/channel.zig  command channel interface (by OS); channel/fifo.zig = named pipe
+src/audio.zig    clips + Audio interface (by OS); audio/shell.zig = pw-play/paplay/aplay/afplay/ffplay
 src/backend/x11.zig  Xlib Window.init/present/move/setInputShape/queryPointer/pollEvent
 src/events.zig   Fifo (open, pollCommand, close+unlink) and parse()
 src/c.h          headers for the translate-c step
