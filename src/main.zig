@@ -232,7 +232,7 @@ pub fn main(init: std.process.Init) !void {
                         last_ptr = win.queryPointer();
                     }
                     if (changed or plan.revision != group_revision) {
-                        pet.goTo(plan.target_x);
+                        pet.walkTo(plan.target_x);
                         group_revision = plan.revision;
                         if (debug_events) std.debug.print("pet: group {s} monitor {d},{d} walk to {d:.1}\n", .{ roam_group.?, plan.monitor.x, plan.monitor.y, plan.target_x });
                     }
@@ -246,7 +246,7 @@ pub fn main(init: std.process.Init) !void {
                 bubble_win.useMonitor(m);
                 // A visit starts a walk on the destination's floor. Offset or
                 // disconnected screens require a hop rather than crossing a gap.
-                pet.goTo(pet.size / 2 + prng.random().float(f32) * @max(0, pet.screen_w - pet.size));
+                pet.walkTo(pet.size / 2 + prng.random().float(f32) * @max(0, pet.screen_w - pet.size));
                 last_ptr = win.queryPointer();
                 if (debug_events) std.debug.print("pet: visiting monitor {d},{d} {d}x{d}\n", .{ m.x, m.y, m.w, m.h });
             }

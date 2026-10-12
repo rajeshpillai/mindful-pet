@@ -20,11 +20,18 @@ pub const socket_name = "mindful-pet-shell.sock";
 /// before giving up on it, and the poll slice between drains while waiting.
 const send_timeout_ms: i32 = 2000;
 const send_slice_ms: i32 = 20;
+const snapshot_timeout_ms: i64 = 1000;
 
 const Error = backend.Error;
 const PointerPos = backend.PointerPos;
 const Rect = backend.Rect;
 const Event = backend.Event;
+
+fn nowMs() i64 {
+    var ts: c.struct_timespec = undefined;
+    _ = c.clock_gettime(c.CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000 + @divTrunc(ts.tv_nsec, 1_000_000);
+}
 
 /// Path of the extension's socket, into `buf`.
 fn socketPath(buf: *[256:0]u8) ?[:0]u8 {
@@ -117,6 +124,7 @@ pub const Window = struct {
 
     const Snapshot = struct {
         screen: backend.Monitor,
+        deadline_ms: i64,
         monitors: backend.Monitors = .{},
         expected: ?usize = null,
         received: usize = 0,
@@ -302,6 +310,7 @@ pub const Window = struct {
     /// Read whatever the shell has sent and turn complete lines into state and events.
     fn drain(self: *Window) void {
         if (self.lost) return;
+        self.expireSnapshot(nowMs());
         while (true) {
             if (self.rx_len == self.rx.len) self.rx_len = 0; // garbage line, drop it
             const n = c.recv(self.sock, self.rx[self.rx_len..].ptr, self.rx.len - self.rx_len, c.MSG_DONTWAIT);
@@ -356,7 +365,7 @@ pub const Window = struct {
             if (self.pending) |*p| {
                 const expected = if (it.next()) |tok| std.fmt.parseInt(usize, tok, 10) catch 0 else 0;
                 p.monitors = .{};
-                p.expected = if (it.next() == null) expected else 0;
+                p.expected = if (it.next() == null and expected <= p.monitors.items.len) expected else 0;
                 p.received = 0;
                 self.publishIfComplete();
             }
@@ -383,7 +392,7 @@ pub const Window = struct {
             const m: backend.Monitor = .{ .x = nums[0], .y = nums[1], .w = nums[2], .h = nums[3] };
             if (m.w <= 0 or m.h <= 0) return;
             if (self.supports_monitors) {
-                self.pending = .{ .screen = m };
+                self.pending = .{ .screen = m, .deadline_ms = nowMs() + snapshot_timeout_ms };
             } else {
                 self.publish(m, .{});
             }
@@ -392,6 +401,13 @@ pub const Window = struct {
             if (nums[0] <= 0 or nums[1] <= 0) return;
             self.publish(.{ .x = 0, .y = 0, .w = nums[0], .h = nums[1] }, .{});
         }
+    }
+
+    fn expireSnapshot(self: *Window, now: i64) void {
+        const p = self.pending orelse return;
+        if (now < p.deadline_ms) return;
+        self.pending = null;
+        self.publish(p.screen, .{});
     }
 
     fn publishIfComplete(self: *Window) void {
@@ -426,15 +442,7 @@ pub const Window = struct {
 };
 
 test "shell lines become events" {
-    var w: Window = undefined;
-    w.held = null;
-    w.queue_head = 0;
-    w.queue_len = 0;
-    w.pointer = .{ .x = 0, .y = 0 };
-    w.screen_w = 0;
-    w.screen_h = 0;
-    w.origin_x = 0;
-    w.origin_y = 0;
+    var w: Window = .{ .sock = -1, .pixels = undefined, .encoded = undefined, .encoded_len = 0, .w = 64, .h = 64, .screen_w = 0, .screen_h = 0 };
     w.handle("screen 1920 1080");
     try std.testing.expectEqual(@as(i32, 1920), w.screen_w);
     try std.testing.expectEqual(@as(i32, 0), w.origin_x);
@@ -450,15 +458,7 @@ test "shell lines become events" {
 }
 
 test "a monitor away from the stage origin is reported in its own coordinates" {
-    var w: Window = undefined;
-    w.held = null;
-    w.queue_head = 0;
-    w.queue_len = 0;
-    w.pointer = .{ .x = 0, .y = 0 };
-    w.screen_w = 0;
-    w.screen_h = 0;
-    w.origin_x = 0;
-    w.origin_y = 0;
+    var w: Window = .{ .sock = -1, .pixels = undefined, .encoded = undefined, .encoded_len = 0, .w = 64, .h = 64, .screen_w = 0, .screen_h = 0 };
     // A 1366x768 laptop panel centred under a 1920x1080 monitor.
     w.handle("screen 710 1080 1366 768");
     try std.testing.expectEqual(@as(i32, 1366), w.screen_w);
@@ -545,7 +545,7 @@ test "malformed monitor lines do not strand a complete snapshot" {
 }
 
 test "malformed monitor counts publish the safe primary-only snapshot" {
-    for ([_][]const u8{ "monitors", "monitors bad", "monitors -1", "monitors 1 extra" }) |line| {
+    for ([_][]const u8{ "monitors", "monitors bad", "monitors -1", "monitors 1 extra", "monitors 33", "monitors 999999", "monitors 999999999999999999999999999" }) |line| {
         var w: Window = .{ .sock = -1, .pixels = undefined, .encoded = undefined, .encoded_len = 0, .w = 64, .h = 64, .screen_w = 0, .screen_h = 0 };
         w.handle("capabilities monitors");
         w.handle("screen 710 1080 1366 768");
@@ -553,6 +553,38 @@ test "malformed monitor counts publish the safe primary-only snapshot" {
         try std.testing.expectEqual(@as(i32, 1366), w.screen_w);
         try std.testing.expectEqual(@as(usize, 1), w.monitors.len);
         try std.testing.expect(w.pending == null);
+    }
+}
+
+test "incomplete monitor snapshots expire to primary-only geometry" {
+    for ([_]?[]const u8{ null, "monitors 2" }) |header| {
+        var w: Window = .{ .sock = -1, .pixels = undefined, .encoded = undefined, .encoded_len = 0, .w = 64, .h = 64, .screen_w = 0, .screen_h = 0 };
+        w.handle("capabilities monitors");
+        w.handle("screen 710 1080 1366 768");
+        if (header) |line| {
+            w.handle(line);
+            w.handle("monitor 0 0 1920 1080");
+        }
+        const deadline = w.pending.?.deadline_ms;
+        w.expireSnapshot(deadline - 1);
+        try std.testing.expectEqual(@as(i32, 0), w.screen_w);
+        w.expireSnapshot(deadline);
+        try std.testing.expectEqual(@as(i32, 1366), w.screen_w);
+        try std.testing.expectEqual(@as(usize, 1), w.monitors.len);
+        try std.testing.expect(w.pending == null);
+        w.handle("monitor 0 0 1920 1080");
+        try std.testing.expectEqual(@as(usize, 1), w.monitors.len);
+        w.handle("screen 0 0 800 600");
+        w.expireSnapshot(w.pending.?.deadline_ms);
+        try std.testing.expectEqual(@as(i32, 800), w.screen_w);
+        try std.testing.expectEqual(@as(usize, 1), w.monitors.len);
+        try std.testing.expect(w.screen_dirty);
+        w.handle("screen 710 1080 1366 768");
+        w.handle("monitors 2");
+        w.handle("monitor 0 0 1920 1080");
+        w.handle("monitor 710 1080 1366 768");
+        try std.testing.expectEqual(@as(usize, 2), w.monitors.len);
+        try std.testing.expectEqual(@as(i32, 1366), w.screen_w);
     }
 }
 

@@ -35,8 +35,9 @@ def wait_for(predicate, timeout=3):
 
 
 class FakeShell:
-    def __init__(self, runtime, legacy=False):
+    def __init__(self, runtime, legacy=False, geometry=None):
         self.legacy = legacy
+        self.geometry = geometry
         self.windows = []
         self.connections = []
         self.stop = threading.Event()
@@ -70,7 +71,8 @@ class FakeShell:
                         if self.legacy:
                             conn.sendall(b"screen 1280 800\n")
                         else:
-                            conn.sendall(b"capabilities input monitors\n" + snapshot(STACKED[1], STACKED))
+                            geometry = self.geometry if self.geometry is not None else snapshot(STACKED[1], STACKED)
+                            conn.sendall(b"capabilities input monitors\n" + geometry)
                     elif raw.startswith(b"move "):
                         window["moves"].append(tuple(map(int, raw.split()[1:])))
                     elif not raw.startswith(b"img "):
@@ -93,11 +95,11 @@ class FakeShell:
 
 
 class Integration(unittest.TestCase):
-    def start(self, legacy=False, scale=4, roam=False, roam_group=None):
+    def start(self, legacy=False, scale=4, roam=False, roam_group=None, geometry=None):
         temp = tempfile.TemporaryDirectory(prefix="mp-regression-")
         self.addCleanup(temp.cleanup)
         runtime = Path(temp.name)
-        shell = FakeShell(runtime, legacy)
+        shell = FakeShell(runtime, legacy, geometry)
         self.addCleanup(shell.close)
         env = {**os.environ, "XDG_RUNTIME_DIR": str(runtime)}
         args = [str(BINARY), "--mute", "--name", "regression", "--scale", str(scale)]
@@ -160,6 +162,25 @@ class Integration(unittest.TestCase):
         wait_for(lambda: primary["moves"][-1][1] == 1904)
         self.command(fifo, "quit")
         self.assertEqual(pet.wait(timeout=1), 0)
+
+    def test_invalid_or_incomplete_snapshots_recover_at_startup_and_hotplug(self):
+        for suffix in (b"", b"monitors 2\nmonitor 0 0 1920 1080\n",
+                       b"monitors 999999\nmonitor 0 0 1920 1080\n"):
+            with self.subTest(suffix=suffix):
+                shell, pet, fifo = self.start(roam=True, geometry=b"screen 710 1080 1366 768\n" + suffix)
+                primary = next(w for w in shell.windows if w["primary"])
+                self.command(fifo, "work")
+                wait_for(lambda: bool(primary["moves"]))
+                self.assertEqual(primary["moves"][-1][1], 1784)
+                for window in shell.windows:
+                    window["conn"].sendall(b"screen 0 0 800 600\n" + suffix)
+                wait_for(lambda: primary["moves"][-1][1] == 536)
+                self.assertLessEqual(primary["moves"][-1][0], 736)
+                for window in shell.windows:
+                    window["conn"].sendall(snapshot(STACKED[1], STACKED))
+                wait_for(lambda: primary["moves"][-1][1] == 1784)
+                self.command(fifo, "quit")
+                self.assertEqual(pet.wait(timeout=1), 0)
 
     def test_default_stays_primary_even_when_dragged_to_another_screen(self):
         shell, pet, fifo = self.start()

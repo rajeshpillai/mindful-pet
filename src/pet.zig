@@ -182,6 +182,11 @@ pub const Pet = struct {
     pub fn goTo(self: *Pet, x: f32) void {
         if (self.state == .held or self.state == .fall) return;
         self.idle_for = 0;
+        self.walkTo(x);
+    }
+
+    pub fn walkTo(self: *Pet, x: f32) void {
+        if (self.state == .held or self.state == .fall) return;
         self.climb_next = false;
         self.target_x = self.clampX(x - self.size / 2);
         self.enter(.walk, forever);
@@ -518,6 +523,26 @@ test "cat walks to a target and arrives" {
     while (pet.state == .walk and i < 60 * 60) : (i += 1) pet.update(1.0 / 60.0, still);
     try std.testing.expect(pet.state != .walk);
     try std.testing.expectApproxEqAbs(@as(f32, 1000 - 32), pet.x, 1.0);
+}
+
+test "autonomous walks preserve inactivity and allow naps while goto resets it" {
+    var prng = std.Random.DefaultPrng.init(1);
+    var pet = Pet.init(prng.random(), &sprites.cat, 1920, 1080, 64, 32);
+    pet.autonomous_walk = false;
+    for (0..6) |_| {
+        pet.walkTo(pet.x + pet.size / 2 + 55);
+        pet.update(1, still);
+        pet.state_limit = 8;
+        run(&pet, 7, still);
+    }
+    try std.testing.expect(pet.idle_for > Pet.nap_after);
+    pet.update(2, still);
+    try std.testing.expectEqual(State.sleep, pet.state);
+    pet.onEvent(.wake);
+    pet.idle_for = 30;
+    pet.goTo(1000);
+    try std.testing.expectEqual(@as(f32, 0), pet.idle_for);
+    try std.testing.expectEqual(State.walk, pet.state);
 }
 
 test "work lasts until a result arrives and ignores the pointer" {
