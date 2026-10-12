@@ -173,6 +173,7 @@ src/backend/     x11.zig: override-redirect window, XImage blit, XFixes input sh
                  auto.zig: gnome if the extension answers, else x11 (the default)
 gnome-extension/ the GNOME Shell extension (one Clutter actor per pet window)
 scripts/install-extension  copies it into place; enabled after your next login (a running shell keeps the old copy)
+scripts/nested-shell  headless GNOME Shell with the extension, for testing without touching your session
 src/events.zig   command vocabulary and parser
 src/channel.zig  command channel interface; channel/fifo.zig is the named pipe
 src/audio.zig    embedded sound clips and playback interface; audio/shell.zig runs a CLI player
@@ -181,7 +182,9 @@ src/c.h          the C headers translated by build.zig (Xlib, XFixes, libc bits)
 src/assets/      WAV clips, embedded at build time by src/audio.zig
 tools/gen_sounds.py  regenerates those clips (stdlib Python)
 tools/sheet.zig  renders all frames to a PPM for reviewing the art
-scripts/petctl   send a command to the pipe, or wrap a command and report its result
+tools/test_integration.py  regression tests against a fake shell on a private socket (Python 3)
+tools/test_extension.mjs   extension protocol and click-through checks (Node.js)
+scripts/petctl   send a command to the pipe, or wrap a command and report its result (Python 3)
 scripts/pet.sh   shell shortcuts (zb, zt, pet_run, pet_say)
 .claude/         Claude Code hooks that drive the cat
 ```
@@ -219,6 +222,11 @@ The pet handles changes to the primary monitor's size and position while
 running. New clients negotiate monitor coordinates and click-through bubbles;
 older clients keep the legacy whole-desktop protocol. A new binary also works
 with an older extension, with the older extension's limitations until re-login.
+To update an installed extension, run `scripts/install-extension` again and
+log out and back in; a running shell keeps the old copy until then.
+
+If the extension is disabled or the shell restarts while a pet is running,
+the pet exits cleanly.
 
 ## Limitations
 

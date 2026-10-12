@@ -8,6 +8,10 @@
 # The pipe lives at $XDG_RUNTIME_DIR/pet.fifo (or /tmp/pet.fifo). A pet started
 # with --name NAME listens on pet-NAME.fifo: address it with -n NAME or PET_NAME.
 # PET_FIFO overrides the path entirely.
+#
+# Needs python3. Each write is non-blocking and atomic (one command within
+# PIPE_BUF), so a stopped pet or a full pipe drops the command instead of
+# holding up the caller. Lines 2-10 above are the --help text.
 
 name="${PET_NAME:-}"
 if [ "$1" = "-n" ]; then name="$2"; shift 2; fi

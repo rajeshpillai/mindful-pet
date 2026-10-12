@@ -15,7 +15,8 @@ agreed to tackle things; it is not a promise.
 ## 2. React to real work
 
 - [x] `work` state with a typing animation, ended by ok/fail/done
-- [x] `scripts/petctl` (non-blocking, safe when the cat is not running)
+- [x] `scripts/petctl` (non-blocking, atomic, safe when the cat is not
+      running or its pipe is full; needs python3)
 - [x] `petctl run CMD` reports a command's exit status
 - [x] `scripts/pet.sh` shell shortcuts: zb, zt, pet_run, pet_say
 - [x] Claude Code hooks: prompt -> work, stop -> ok, notification -> meow
@@ -53,7 +54,8 @@ agreed to tackle things; it is not a promise.
       says over a Unix socket, reports pointer position (`-Dbackend=gnome`,
       `gnome-extension/`, `scripts/install-extension`)
 - [ ] Verify the GNOME backend by hand in the real session after a re-login:
-      pointer chase over native windows, click, drag, right-click quit
+      pointer chase over native windows, drag, right-click quit (left click
+      verified 2026-10-12)
 - [ ] Extension reports window geometry (title bars, edges) to the pet
 - [x] `auto` backend: try the extension socket, fall back to X11 (the default build)
 - [ ] Sit on window title bars, walk along window edges

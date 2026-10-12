@@ -82,7 +82,7 @@ comptime {
         "pixels", // [*]u32, w*h ARGB, little-endian 0xAARRGGBB
         "w", "h", // u32
         "argb", // bool: alpha 0 is really see-through; false means paint an opaque bg
-        "screen_w", "screen_h", // i32
+        "screen_w", "screen_h", // i32; may change while running, announced by Event.screen_changed
     };
     for (required_fields) |f| {
         if (!@hasField(Window, f)) @compileError("backend " ++ name ++ ": Window is missing field `" ++ f ++ "`");

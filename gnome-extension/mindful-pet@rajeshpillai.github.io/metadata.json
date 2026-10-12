@@ -1,7 +1,7 @@
 {
   "uuid": "mindful-pet@rajeshpillai.github.io",
   "name": "Mindful Pet",
-  "description": "Draws the mindful-pet desktop pets as GNOME Shell actors, so they can sit above native Wayland windows and see the pointer everywhere. The pets themselves run as a separate program (pet, built with -Dbackend=gnome) and talk to this extension over a Unix socket; without a pet running it does nothing.",
+  "description": "Draws the mindful-pet desktop pets as GNOME Shell actors, so they can sit above native Wayland windows and see the pointer everywhere. The pets themselves run as a separate program (pet; the default auto build uses this extension when it is running, -Dbackend=gnome requires it) and talk to this extension over a Unix socket; without a pet running it does nothing.",
   "shell-version": ["46", "47", "48"],
   "url": "https://github.com/rajeshpillai/mindful-pets",
   "version-name": "0.1.3"

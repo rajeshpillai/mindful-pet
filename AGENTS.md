@@ -26,6 +26,10 @@ zig build test            # unit tests (state machine, parser, font, characters)
 zig build sheet           # all frames -> zig-out/sheet.ppm (check art this way;
                           # GNOME blocks CLI screenshots)
 zig fmt --check build.zig src tools
+python3 tools/test_integration.py   # after `zig build`: pet against a fake shell on a private
+                                    # socket (monitor changes, bubble disconnect, input
+                                    # negotiation, legacy extension) plus full/no-reader FIFOs
+node tools/test_extension.mjs       # extension protocol + alpha hit-testing with a stub actor
 ```
 
 Toolchain: Zig master (0.17.0-dev). `@cImport` is gone; C headers go through
@@ -45,15 +49,19 @@ src/backend/gnome.zig  client of the GNOME Shell extension over a Unix socket; p
 src/backend/auto.zig   default: probes the extension socket once, then wraps gnome or x11 for every window
 gnome-extension/    mindful-pet@rajeshpillai.github.io: GJS extension, one Clutter actor per pet window
 scripts/install-extension  copy the extension into ~/.local/share/gnome-shell/extensions (enable rules inside)
-scripts/nested-shell       headless GNOME Shell with the extension, isolated from the real session, for tests
+scripts/nested-shell       headless GNOME Shell with the extension, isolated from the real session, for tests;
+                           `--ext DIR` loads the repo copy, extra flags go to gnome-shell (`--virtual-monitor WxH`)
 src/events.zig      command vocabulary + parser (shared by every channel)
 src/channel.zig     command channel interface, chosen by OS; channel/fifo.zig is the named pipe
 src/audio.zig       embedded WAV clips + playback interface, chosen by OS; audio/shell.zig shells out to a player
 src/font.zig        3x5 font + speech bubble painter
-scripts/petctl      send a command; `petctl run CMD`; `-n NAME` for named instances
+scripts/petctl      send a command; `petctl run CMD`; `-n NAME` for named instances; needs python3
+                    (atomic non-blocking write, dropped when the pipe is full)
 scripts/pet.sh      shell shortcuts (zb, zt, pet_run, pet_say)
 scripts/ship        the "ship it" action
 tools/sheet.zig     sprite sheet dump; tools/gen_sounds.py regenerates src/assets/*.wav
+tools/test_integration.py  private-socket/FIFO regressions against a fake shell (python3, needs zig build)
+tools/test_extension.mjs   extension protocol and hit-testing checks with a stub actor (node)
 .claude/settings.json  hooks: prompt -> work, stop -> ok, notification -> meow + say
 ```
 
@@ -87,7 +95,10 @@ tools/sheet.zig     sprite sheet dump; tools/gen_sounds.py regenerates src/asset
   carries `GSETTINGS_SCHEMA_DIR`, `XDG_DATA_DIRS` and snap library paths that
   make gnome-shell abort. Run the pet and petctl with
   `XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR/mp-nested`. Its log is the only view you
-  get: no screenshots and no pointer in a headless shell.
+  get: no screenshots and no pointer in a headless shell. `--ext DIR` loads
+  the repo's extension instead of the installed one, and extra flags go to
+  gnome-shell, so `--virtual-monitor 1366x768` adds a second monitor for
+  stage-origin tests.
 - The `gnome` backend reports socket closure once as `disconnected`.
   main.zig quits when either the pet or bubble connection disconnects.
   Monitor updates report `screen_changed`; auto.zig refreshes its mirrored
@@ -101,7 +112,11 @@ tools/sheet.zig     sprite sheet dump; tools/gen_sounds.py regenerates src/asset
   x11.zig exporting `name`, `Window` and `wait`, a value to the `Backend`
   enum in build.zig plus its system libraries, and an arm in the `impl`
   switch in backend.zig, and an arm in auto.zig if it should be auto-detected.
-  The comptime block in backend.zig tells you what is missing.
+  The comptime block in backend.zig tells you what is missing. `screen_w`
+  and `screen_h` may change while running: a backend that learns of monitor
+  changes updates them and reports `screen_changed`; one whose connection
+  can go away reports `disconnected` once. Neither is required (x11 sends
+  neither). Keep every socket operation on the compositor side non-blocking.
   The command channel (`src/channel.zig`) and audio (`src/audio.zig`) follow
   the same pattern but select on `builtin.os.tag`; a Windows port adds
   `channel/win_pipe.zig` and `audio/win.zig` and two switch arms.

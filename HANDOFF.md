@@ -111,12 +111,15 @@ History in short (`git log --oneline` has the rest):
   corner clicks pass through, `petctl quit` exits and removes the pipe.
 - Live GNOME backend: against a headless nested shell (`scripts/nested-shell`):
   connect, screen size, frames, bubble, sound, clean quit for both windows,
-  and the auto build choosing gnome vs x11 correctly. The extension's writer
+  and the auto build choosing gnome vs x11 correctly. With
+  `--ext gnome-extension/mindful-pet@rajeshpillai.github.io --virtual-monitor 1366x768`
+  (two monitors): the new pet gets the primary monitor's rectangle and the
+  installed legacy pet still gets the stage size. The extension's writer
   has a standalone gjs test (a non-reading peer must stall it in
   milliseconds; a reading peer must get every line in order); it lives in the
   session scratchpad, not the repo, so rewrite it from writer.js if needed.
-  Clicks and drags through the extension are implemented but were never
-  exercised by hand.
+  A left click through the extension meowed in the real session; drags and
+  right-click quit are implemented but were never exercised by hand.
 
 ## Open questions only the user can answer
 
@@ -145,7 +148,7 @@ Ordered as discussed on 2026-10-12, after the hand test above:
 
 ```
 src/main.zig     event loop, --scale/--help parsing, render(), input shape
-src/pet.zig      Pet struct, State/Event enums, update(), frame()
+src/pet.zig      Pet struct, State/Event enums, update(), frame(), resize() after monitor changes, chaseTarget()
 src/sprites.zig  Frame/palette/Transform/source(), Character struct, `all` + byName()
 src/characters/  cat.zig, dog.zig, rabbit.zig; each exports `character`
 src/font.zig     3x5 font + drawBubble()
@@ -153,14 +156,19 @@ src/backend.zig  backend interface: Window contract, Event/Rect/PointerPos, wait
 src/channel.zig  command channel interface (by OS); channel/fifo.zig = named pipe
 src/audio.zig    clips + Audio interface (by OS); audio/shell.zig = pw-play/paplay/aplay/afplay/ffplay
 src/backend/x11.zig  Xlib Window.init/present/move/setInputShape/queryPointer/pollEvent
-src/backend/gnome.zig  socket client: hello/img/move/show/hide/raise out, screen/pointer/press/release in
-src/backend/auto.zig   default build; gnome.available() decides once, union(Kind) dispatch
-gnome-extension/     extension.js: SocketService, PetWindow (Clutter.Image actor, alpha hit-test, 30 Hz pointer); writer.js: non-blocking bounded line writer
+src/backend/gnome.zig  socket client: hello/img/move/show/hide/raise/input out, capabilities/screen/pointer/press/release in;
+                       translates stage coordinates to the primary monitor, reports screen_changed/disconnected
+src/backend/auto.zig   default build; gnome.available() decides once, union(Kind) dispatch, mirrors screen_w/h on every poll
+gnome-extension/     extension.js: SocketService, PetWindow (Clutter.Image actor, alpha hit-test, 30 Hz pointer,
+                     protocol v2 negotiation, per-monitor `screen`, `input 0|1`); writer.js: non-blocking bounded line writer
 src/events.zig   Command union and parse(); the pipe itself is in channel/fifo.zig
 src/c.h          headers for the translate-c step
-scripts/petctl   pipe writer; `petctl run CMD` wraps a command
+scripts/petctl   pipe writer (python3, atomic non-blocking); `petctl run CMD` wraps a command
 scripts/pet.sh   zb, zt, pet_run, pet_say
+scripts/nested-shell  headless GNOME Shell for tests; `--ext DIR`, extra flags to gnome-shell
 tools/sheet.zig  sprite sheet dump (zig build sheet)
+tools/test_integration.py  fake-shell/FIFO regressions (python3, after zig build)
+tools/test_extension.mjs   extension protocol + hit-testing checks (node)
 ```
 
 Adding a new reaction end to end: a `Frame` array in every file under

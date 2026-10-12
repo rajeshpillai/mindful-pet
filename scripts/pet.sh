@@ -1,6 +1,6 @@
 # Shell integration for the desktop pet. Source from ~/.bashrc or ~/.zshrc:
 #
-#   source /path/to/jarvis-bot/scripts/pet.sh
+#   source /path/to/mindful-pets/scripts/pet.sh
 #
 # Then:
 #   zb              zig build with the cat reacting to the result (args pass through)

@@ -2,7 +2,10 @@
 //! GNOME Shell extension (gnome-extension/), reached over a Unix socket at
 //! $XDG_RUNTIME_DIR/mindful-pet-shell.sock. The shell sees the pointer over
 //! every window and keeps the actor above native Wayland windows, which an
-//! X11 client under XWayland cannot. Protocol in extension.js.
+//! X11 client under XWayland cannot. Protocol in extension.js: this side
+//! speaks v2 (`hello W H 2`), keeps the pet on the primary monitor by
+//! translating the shell's stage coordinates, and falls back to the legacy
+//! whole-stage geometry when an older extension answers.
 
 const std = @import("std");
 const c = @import("c");

@@ -30,8 +30,9 @@
 //
 // Clicks land on the actor only where its pixels are opaque; elsewhere it is
 // made non-reactive so they fall through, which is what the X11 backend does
-// with an XFixes input shape. The pet gets a `release` even when the drag ends
-// off the actor, because the shell watches the button state itself.
+// with an XFixes input shape. A window that sent `input 0` (the speech bubble)
+// is never reactive. The pet gets a `release` even when the drag ends off the
+// actor, because the shell watches the button state itself.
 //
 // Nothing here may block: this code runs on the compositor's main thread, and
 // a blocked write to a pet that is not reading would freeze the whole desktop
