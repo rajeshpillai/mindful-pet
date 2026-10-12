@@ -6,8 +6,8 @@ to do next.
 
 ## What this is
 
-The repo is github.com/rajeshpillai/mindful-pet; the local folder is still
-named "jarvis-bot", an old code name. The project is a desktop pet: a pixel-art
+The repo is github.com/rajeshpillai/mindful-pets; the local folder was
+once named "jarvis-bot", an old code name. The project is a desktop pet: a pixel-art
 cat that lives along the bottom of the screen, wanders, naps, chases the
 cursor, and reacts to events sent through a named pipe. Written in Zig
 (master, 0.17.0-dev.2056) over Xlib, running under XWayland on GNOME.

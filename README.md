@@ -1,4 +1,4 @@
-# mindful-pet
+# mindful-pets
 
 A tiny desktop pet written in Zig: a pixel-art cat, dog or rabbit that lives
 on the edges of your screen. It wanders, naps, climbs the sides, hangs from the top, drops

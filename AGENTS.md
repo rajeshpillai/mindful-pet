@@ -1,4 +1,4 @@
-# Agent notes for mindful-pet
+# Agent notes for mindful-pets
 
 Read this before changing anything. README.md is for users, TODO.md is the
 roadmap, HANDOFF.md carries session-to-session state.
@@ -7,8 +7,8 @@ roadmap, HANDOFF.md carries session-to-session state.
 
 A desktop pet in Zig: a pixel-art cat, dog or rabbit in a transparent X11
 override-redirect window (runs under XWayland on GNOME). It reacts to
-commands on a named pipe and to Claude Code hooks. Local folder name
-`jarvis-bot` is an old code name; the repo is github.com/rajeshpillai/mindful-pet.
+commands on a named pipe and to Claude Code hooks. `jarvis-bot` was an old
+code name; the repo is github.com/rajeshpillai/mindful-pets.
 
 ## Commands the user gives
 
