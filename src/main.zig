@@ -158,7 +158,8 @@ pub fn main(init: std.process.Init) !void {
         input.pointer_x = @floatFromInt(ptr.x);
         input.pointer_y = @floatFromInt(ptr.y);
         input.pointer_moved = ptr.x != last_ptr.x or ptr.y != last_ptr.y;
-        if (roam and (input.pointer_moved or input.drag != null)) {
+        const follows_pointer = drag != null or group == null or roaming_mod.Roaming.ready(&pet);
+        if (roam and follows_pointer and (input.pointer_moved or input.drag != null)) {
             if (win.monitors.at(ptr.x + win.origin_x, ptr.y + win.origin_y)) |m| {
                 requested_monitor = m;
                 if (m.x != win.origin_x or m.y != win.origin_y or m.w != win.screen_w or m.h != win.screen_h) {
@@ -202,7 +203,13 @@ pub fn main(init: std.process.Init) !void {
         if (group) |*g| {
             const current: backend.Monitor = .{ .x = win.origin_x, .y = win.origin_y, .w = win.screen_w, .h = win.screen_h };
             const ready = free_to_roam and roaming_mod.Roaming.ready(&pet);
-            if (try g.poll(@intFromFloat(now), size, &win.monitors, current, requested_monitor, ready, prng.random())) |plan| {
+            const polled = g.poll(@intFromFloat(now), size, &win.monitors, current, requested_monitor, ready, prng.random()) catch |err| blk: {
+                std.debug.print("pet: leaving group {s} ({s}); roaming alone\n", .{ roam_group.?, @errorName(err) });
+                g.close();
+                group = null;
+                break :blk null;
+            };
+            if (polled) |plan| {
                 if (ready) {
                     const changed = !std.meta.eql(current, plan.monitor);
                     if (changed) {
@@ -219,7 +226,7 @@ pub fn main(init: std.process.Init) !void {
                     }
                 }
             }
-        } else if (roam and free_to_roam) {
+        } else if (roam and free_to_roam and !input.pointer_moved) {
             const current: backend.Monitor = .{ .x = win.origin_x, .y = win.origin_y, .w = win.screen_w, .h = win.screen_h };
             if (roaming.tick(dt, &win.monitors, current, &pet)) |m| {
                 pet.relocate(@floatFromInt(current.x - m.x), @floatFromInt(current.y - m.y), @floatFromInt(m.w), @floatFromInt(m.h));

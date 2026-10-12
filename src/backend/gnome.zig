@@ -5,7 +5,10 @@
 //! X11 client under XWayland cannot. Protocol in extension.js: this side
 //! speaks v3 (`hello W H 3`), keeps the pet on the primary monitor by
 //! translating the shell's stage coordinates, and falls back to the legacy
-//! whole-stage geometry when an older extension answers.
+//! whole-stage geometry when an older extension answers. A v3 shell announces
+//! `capabilities input monitors` and then sends geometry as a snapshot
+//! (`screen`, `monitors N`, N `monitor` lines) that is staged here and
+//! published only once complete, so `monitors` is never empty or partial.
 
 const std = @import("std");
 const c = @import("c");
@@ -107,8 +110,17 @@ pub const Window = struct {
     lost: bool = false,
     disconnect_reported: bool = false,
     supports_input: bool = false,
+    supports_monitors: bool = false,
     input_sent: ?bool = null,
     screen_dirty: bool = false,
+    pending: ?Snapshot = null,
+
+    const Snapshot = struct {
+        screen: backend.Monitor,
+        monitors: backend.Monitors = .{},
+        expected: ?usize = null,
+        received: usize = 0,
+    };
 
     pub fn init(w: u32, h: u32) Error!Window {
         const sock = connectSocket() orelse {
@@ -314,6 +326,7 @@ pub const Window = struct {
         if (std.mem.eql(u8, cmd, "capabilities")) {
             while (it.next()) |cap| {
                 if (std.mem.eql(u8, cap, "input")) self.supports_input = true;
+                if (std.mem.eql(u8, cap, "monitors")) self.supports_monitors = true;
             }
             return;
         }
@@ -324,9 +337,18 @@ pub const Window = struct {
             nums[count] = std.fmt.parseInt(i32, tok, 10) catch return;
         }
         if (std.mem.eql(u8, cmd, "monitors")) {
-            self.monitors = .{};
+            if (self.pending) |*p| {
+                p.monitors = .{};
+                p.expected = if (count >= 1 and nums[0] >= 0) @intCast(nums[0]) else null;
+                p.received = 0;
+                self.publishIfComplete();
+            }
         } else if (std.mem.eql(u8, cmd, "monitor") and count == 4) {
-            self.monitors.add(.{ .x = nums[0], .y = nums[1], .w = nums[2], .h = nums[3] });
+            if (self.pending) |*p| {
+                p.monitors.add(.{ .x = nums[0], .y = nums[1], .w = nums[2], .h = nums[3] });
+                p.received += 1;
+                self.publishIfComplete();
+            }
         } else if (std.mem.eql(u8, cmd, "pointer") and count >= 2) {
             const x = nums[0] - self.origin_x;
             const y = nums[1] - self.origin_y;
@@ -339,15 +361,33 @@ pub const Window = struct {
             self.held = null;
             self.push(.{ .release = .{ .button = @intCast(nums[0]), .x_root = nums[1] - self.origin_x, .y_root = nums[2] - self.origin_y } });
         } else if (std.mem.eql(u8, cmd, "screen") and count >= 4) {
-            self.monitors = .{};
-            self.monitors.add(.{ .x = nums[0], .y = nums[1], .w = nums[2], .h = nums[3] });
-            self.setScreen(nums[0], nums[1], nums[2], nums[3]);
+            const m: backend.Monitor = .{ .x = nums[0], .y = nums[1], .w = nums[2], .h = nums[3] };
+            if (m.w <= 0 or m.h <= 0) return;
+            if (self.supports_monitors) {
+                self.pending = .{ .screen = m };
+            } else {
+                self.publish(m, .{});
+            }
         } else if (std.mem.eql(u8, cmd, "screen") and count >= 2) {
             // An older extension: the whole stage, origin 0,0.
-            self.monitors = .{};
-            self.monitors.add(.{ .x = 0, .y = 0, .w = nums[0], .h = nums[1] });
-            self.setScreen(0, 0, nums[0], nums[1]);
+            if (nums[0] <= 0 or nums[1] <= 0) return;
+            self.publish(.{ .x = 0, .y = 0, .w = nums[0], .h = nums[1] }, .{});
         }
+    }
+
+    fn publishIfComplete(self: *Window) void {
+        const p = self.pending orelse return;
+        const expected = p.expected orelse return;
+        if (p.received < expected) return;
+        self.pending = null;
+        self.publish(p.screen, p.monitors);
+    }
+
+    /// Swap in a complete monitor list, always including the selected screen.
+    fn publish(self: *Window, screen: backend.Monitor, monitors: backend.Monitors) void {
+        self.monitors = monitors;
+        self.monitors.add(screen);
+        self.setScreen(screen.x, screen.y, screen.w, screen.h);
     }
 
     fn setScreen(self: *Window, x: i32, y: i32, w: i32, h: i32) void {
@@ -426,6 +466,49 @@ test "monitor changes invalidate moves and rebase the pointer" {
     try std.testing.expectEqual(@as(i32, 600), w.screen_h);
     w.handle("screen 0 0 0 0");
     try std.testing.expectEqual(@as(i32, 800), w.screen_w);
+    try std.testing.expectEqual(@as(usize, 1), w.monitors.len);
+}
+
+test "a v3 monitor snapshot is published only once every line has arrived" {
+    var w: Window = .{ .sock = -1, .pixels = undefined, .encoded = undefined, .encoded_len = 0, .w = 64, .h = 64, .screen_w = 0, .screen_h = 0 };
+    w.handle("capabilities input monitors");
+    try std.testing.expect(w.supports_monitors);
+    w.handle("screen 710 1080 1366 768");
+    try std.testing.expectEqual(@as(i32, 0), w.screen_w);
+    try std.testing.expectEqual(@as(usize, 0), w.monitors.len);
+    w.handle("monitors 2");
+    w.handle("monitor 0 0 1920 1080");
+    try std.testing.expectEqual(@as(usize, 0), w.monitors.len);
+    w.handle("monitor 710 1080 1366 768");
+    try std.testing.expectEqual(@as(usize, 2), w.monitors.len);
+    try std.testing.expectEqual(@as(i32, 1366), w.screen_w);
+    try std.testing.expectEqual(@as(i32, 710), w.origin_x);
+    try std.testing.expect(!w.screen_dirty);
+    // A layout change: the old complete list stays visible until the new one is whole.
+    w.handle("screen 0 0 800 600");
+    w.handle("monitors 1");
+    try std.testing.expectEqual(@as(usize, 2), w.monitors.len);
+    try std.testing.expectEqual(@as(i32, 1366), w.screen_w);
+    w.handle("monitor 0 0 800 600");
+    try std.testing.expectEqual(@as(usize, 1), w.monitors.len);
+    try std.testing.expectEqual(@as(i32, 800), w.screen_w);
+    try std.testing.expect(w.pollEvent().? == .screen_changed);
+    // A list without the primary still contains it; a count of zero completes at once.
+    w.handle("screen 0 0 640 480");
+    w.handle("monitors 0");
+    try std.testing.expectEqual(@as(usize, 1), w.monitors.len);
+    try std.testing.expectEqual(@as(i32, 640), w.monitors.items[0].w);
+}
+
+test "monitor lines without the v3 capability leave the primary-only list alone" {
+    var w: Window = .{ .sock = -1, .pixels = undefined, .encoded = undefined, .encoded_len = 0, .w = 64, .h = 64, .screen_w = 0, .screen_h = 0 };
+    w.handle("capabilities input");
+    w.handle("screen 710 1080 1366 768");
+    try std.testing.expectEqual(@as(i32, 1366), w.screen_w);
+    w.handle("monitors");
+    w.handle("monitor 0 0 1920 1080");
+    try std.testing.expectEqual(@as(usize, 1), w.monitors.len);
+    try std.testing.expectEqual(@as(i32, 710), w.monitors.items[0].x);
 }
 
 test "disconnect is reported once without reviving the connection" {

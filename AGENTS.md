@@ -31,6 +31,9 @@ python3 tools/test_integration.py   # after `zig build`: pet against a fake shel
                                     # socket (monitor changes, bubble disconnect, input
                                     # negotiation, legacy extension) plus full/no-reader FIFOs
 node tools/test_extension.mjs       # extension protocol + alpha hit-testing with a stub actor
+python3 tools/test_x11.py           # after `zig build`: primary output, off-screen recovery, live
+                                    # monitor changes and roaming in a private Xvfb (needs Xvfb,
+                                    # xrandr, xdotool; skips without them)
 ```
 
 Toolchain: Zig master (0.17.0-dev). `@cImport` is gone; C headers go through
@@ -66,6 +69,7 @@ scripts/ship        the "ship it" action
 tools/sheet.zig     sprite sheet dump; tools/gen_sounds.py regenerates src/assets/*.wav
 tools/test_integration.py  private-socket/FIFO regressions against a fake shell (python3, needs zig build)
 tools/test_extension.mjs   extension protocol and hit-testing checks with a stub actor (node)
+tools/test_x11.py          XRandR primary/roaming/resize regressions in a private Xvfb (python3, needs zig build)
 .claude/settings.json  hooks: prompt -> work, stop -> ok, notification -> meow + say
 ```
 

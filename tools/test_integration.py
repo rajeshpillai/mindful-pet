@@ -3,6 +3,7 @@ import argparse
 import os
 from pathlib import Path
 import socket
+import struct
 import subprocess
 import tempfile
 import threading
@@ -11,6 +12,17 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 BINARY = ROOT / "zig-out/bin/pet"
+
+
+# A 1920x1080 monitor above a 1366x768 primary panel at x=710.
+STACKED = ((0, 0, 1920, 1080), (710, 1080, 1366, 768))
+
+
+def snapshot(primary, monitors):
+    """The v3 geometry snapshot the extension sends on connect and on monitor changes."""
+    lines = ["screen %d %d %d %d" % primary, "monitors %d" % len(monitors)]
+    lines.extend("monitor %d %d %d %d" % m for m in monitors)
+    return ("\n".join(lines) + "\n").encode()
 
 
 def wait_for(predicate, timeout=3):
@@ -58,8 +70,7 @@ class FakeShell:
                         if self.legacy:
                             conn.sendall(b"screen 1280 800\n")
                         else:
-                            conn.sendall(b"capabilities input\nscreen 710 1080 1366 768\n"
-                                         b"monitors\nmonitor 0 0 1920 1080\nmonitor 710 1080 1366 768\n")
+                            conn.sendall(b"capabilities input monitors\n" + snapshot(STACKED[1], STACKED))
                     elif raw.startswith(b"move "):
                         window["moves"].append(tuple(map(int, raw.split()[1:])))
                     elif not raw.startswith(b"img "):
@@ -114,13 +125,35 @@ class Integration(unittest.TestCase):
         wait_for(lambda: bool(primary["moves"]))
         first = primary["moves"][-1]
         for window in shell.windows:
-            window["conn"].sendall(b"screen 900 1200 1366 768\n")
+            window["conn"].sendall(snapshot((900, 1200, 1366, 768), (STACKED[0], (900, 1200, 1366, 768))))
         expected = (first[0] + 190, first[1] + 120)
         wait_for(lambda: primary["moves"][-1] == expected)
         for window in shell.windows:
-            window["conn"].sendall(b"screen 0 0 800 600\n")
+            window["conn"].sendall(snapshot((0, 0, 800, 600), ((0, 0, 800, 600),)))
         wait_for(lambda: primary["moves"][-1][1] == 536)
         self.assertLessEqual(primary["moves"][-1][0], 736)
+        self.command(fifo, "quit")
+        self.assertEqual(pet.wait(timeout=1), 0)
+
+    def test_monitor_snapshot_applies_only_once_complete(self):
+        shell, pet, fifo = self.start(roam=True)
+        primary = next(w for w in shell.windows if w["primary"])
+        self.command(fifo, "work")
+        wait_for(lambda: bool(primary["moves"]))
+        before = primary["moves"][-1]
+        whole = snapshot((0, 0, 800, 600), ((0, 0, 800, 600), (900, 1200, 1366, 768)))
+        head, tail = whole.rsplit(b"\n", 2)[0] + b"\n", whole.rsplit(b"\n", 2)[1] + b"\n"
+        self.assertTrue(tail.startswith(b"monitor 900"))
+        for window in shell.windows:
+            window["conn"].sendall(head)
+        time.sleep(0.3)
+        self.assertEqual(primary["moves"][-1], before, "a partial snapshot must not move the pet")
+        for window in shell.windows:
+            window["conn"].sendall(tail)
+        wait_for(lambda: primary["moves"][-1][1] == 536)
+        # The new list is usable at once: the pointer finds the second monitor.
+        primary["conn"].sendall(b"pointer 1000 1300\n")
+        wait_for(lambda: primary["moves"][-1][1] == 1904)
         self.command(fifo, "quit")
         self.assertEqual(pet.wait(timeout=1), 0)
 
@@ -198,21 +231,32 @@ class Integration(unittest.TestCase):
             wait_for(lambda: bool(primary["moves"]))
             clients.append((pet, fifo, primary))
         cat, dog, other, solo = clients
+
+        def broadcast(line):
+            # The shell reports the pointer to every window, not only the one under it.
+            for pet, _, primary in clients:
+                if pet.poll() is None:
+                    primary["conn"].sendall(line)
+
         self.command(dog[1], "sleep")
+        self.command(other[1], "sleep")
         time.sleep(0.1)
-        cat[2]["conn"].sendall(b"pointer 100 500\n")
+        broadcast(b"pointer 100 500\n")
         wait_for(lambda: cat[2]["moves"][-1][1] == 1016)
+        wait_for(lambda: solo[2]["moves"][-1][1] == 1016)
         time.sleep(0.3)
         self.assertEqual(dog[2]["moves"][-1][1], 1784, "sleep should delay joining a group visit")
+        self.assertEqual(other[2]["moves"][-1][1], 1784, "a sleeping group member must not follow the pointer")
         self.command(dog[1], "wake")
         wait_for(lambda: dog[2]["moves"][-1][1] == 1016)
+        self.command(other[1], "wake")
+        time.sleep(0.5)
         self.assertEqual(other[2]["moves"][-1][1], 1784, "a different group must stay independent")
-        self.assertEqual(solo[2]["moves"][-1][1], 1784, "--roam must not join a group implicitly")
         self.assertEqual(len(list(runtime.glob("pet-roam-*.state"))), 2)
         # A group has no permanent leader: the surviving pet keeps responding.
         self.command(cat[1], "quit")
         self.assertEqual(cat[0].wait(timeout=1), 0)
-        dog[2]["conn"].sendall(b"pointer 1000 1800\n")
+        broadcast(b"pointer 1000 1800\n")
         wait_for(lambda: dog[2]["moves"][-1][1] == 1784)
         logs = []
         for pet, fifo, _ in clients:
@@ -223,6 +267,47 @@ class Integration(unittest.TestCase):
             logs.append(log.decode())
         self.assertIn("group friends monitor 0,0 walk to", logs[0])
         self.assertIn("group friends monitor 0,0 walk to", logs[1])
+        self.assertNotIn("group other monitor 0,0", logs[2], "the pointer must not plan a visit for a sleeping group")
+        self.assertNotIn(" group ", logs[3], "--roam must not join a group implicitly")
+
+    def test_group_file_failure_degrades_to_solo_roaming(self):
+        shell, pet, fifo = self.start()
+        runtime = fifo.parent
+        env = {**os.environ, "XDG_RUNTIME_DIR": str(runtime), "PET_DEBUG": "1"}
+        # A full group: 32 members with fresh heartbeats, in the private state layout.
+        now = time.monotonic_ns() // 1_000_000 - 50
+        member = struct.Struct("<qqII")
+        header = struct.Struct("<QqqqQiiiiII")
+        state = header.pack(0x4d50524752503031, now, now + 30000, now + 8000, 1,
+                            *STACKED[1], 500000, 0)
+        state += b"".join(member.pack(i + 1, now, 64, 0) for i in range(32))
+        path = runtime / f"pet-roam-{os.geteuid()}-full.state"
+        path.write_bytes(state)
+        path.chmod(0o600)
+        count = len(shell.windows)
+        full = subprocess.Popen([str(BINARY), "--mute", "--name", "full", "--roam-group", "full"],
+                                env=env, stderr=subprocess.PIPE)
+        def cleanup():
+            if full.poll() is None:
+                full.terminate()
+            full.communicate(timeout=2)
+        self.addCleanup(cleanup)
+        full_fifo = runtime / "pet-full.fifo"
+        wait_for(lambda: full_fifo.exists() and len(shell.windows) == count + 2)
+        primary = next(w for w in shell.windows[count:] if w["primary"])
+        self.command(full_fifo, "work")
+        wait_for(lambda: bool(primary["moves"]))
+        time.sleep(0.3)
+        self.assertIsNone(full.poll(), "a group failure must not end the pet")
+        primary["conn"].sendall(b"pointer 100 500\n")
+        wait_for(lambda: primary["moves"][-1][1] == 1016)
+        self.command(full_fifo, "quit")
+        _, log = full.communicate(timeout=2)
+        self.assertEqual(full.returncode, 0, log.decode())
+        self.assertIn("leaving group full (GroupFull); roaming alone", log.decode())
+        self.assertNotIn("group full monitor", log.decode())
+        self.command(fifo, "quit")
+        self.assertEqual(pet.wait(timeout=1), 0)
 
     def test_group_rejects_unsafe_paths_and_does_not_wait_on_a_locked_plan(self):
         shell, pet, fifo = self.start()
@@ -283,7 +368,7 @@ class Integration(unittest.TestCase):
         shell, pet, fifo = self.start(scale=12)
         self.command(fifo, "work")
         for window in shell.windows:
-            window["conn"].sendall(b"screen 0 0 800 600\n")
+            window["conn"].sendall(snapshot((0, 0, 800, 600), ((0, 0, 800, 600),)))
         self.command(fifo, "say " + "x" * 40)
         bubble = next(w for w in shell.windows if not w["primary"])
         wait_for(lambda: bool(bubble["moves"]))

@@ -15,12 +15,15 @@
 //                  move X Y             screen coordinates
 //                  show | hide | raise
 //                  input 0|1           click-through or alpha hit-testing (v2)
-//   shell -> pet   monitors            reset the monitor list (v3)
-//                  monitor X Y W H    one actual monitor rectangle (v3)
-//   shell -> pet   capabilities input  before screen, for v2 peers
+//   shell -> pet   capabilities input  before screen, for v2 peers; v3 peers
+//                                       get `capabilities input monitors`
 //   shell -> pet   screen X Y W H       the primary monitor's rectangle in stage
 //                                       coordinates; sent once on connect, and
 //                                       when monitors change
+//                  monitors N           N `monitor` lines follow (v3); the pet
+//                                       applies screen and list together once
+//                                       the whole snapshot has arrived
+//                  monitor X Y W H      one actual monitor rectangle (v3)
 //                  pointer X Y          whenever the pointer moves
 //                  press B X Y LX LY    button 1/2/3, screen coords, window-local coords
 //                  release B X Y
@@ -229,7 +232,9 @@ class PetWindow {
         });
         // Above windows, hidden while a fullscreen window has focus.
         Main.layoutManager.addTopChrome(this._actor, { affectsInputRegion: false });
-        if (this._protocol >= 2)
+        if (this._protocol >= 3)
+            this.send('capabilities input monitors');
+        else if (this._protocol >= 2)
             this.send('capabilities input');
         this.screenChanged();
         if (this._destroyed) return;
@@ -272,8 +277,9 @@ class PetWindow {
     screenChanged() {
         this.send(screenLine(this._protocol));
         if (this._protocol >= 3 && !this._destroyed) {
-            this.send('monitors');
-            for (const m of Main.layoutManager.monitors) {
+            const monitors = [...Main.layoutManager.monitors];
+            this.send(`monitors ${monitors.length}`);
+            for (const m of monitors) {
                 if (this._destroyed) break;
                 this.send(`monitor ${m.x} ${m.y} ${m.width} ${m.height}`);
             }

@@ -98,6 +98,17 @@ History in short (`git log --oneline` has the rest):
   and departed members expire after three seconds. A private state file is
   retained in the runtime directory to avoid inode races during joining.
   The file is versioned, validated and opened without following symlinks.
+- Review round on the roaming branch: a group-file failure (full group, short
+  write, lock error) now logs once, closes the group and continues as solo
+  roaming instead of ending the pet. Grouped pets that are busy, asleep,
+  climbing or reacting no longer follow the pointer to another monitor
+  (carrying still does); the integration test broadcasts pointer lines to
+  every pet as the shell does. Solo visits skip pointer-moving frames so a
+  visit is not undone by the next pointer update. Protocol v3 announces
+  `capabilities input monitors` and sends `monitors N`; the pet stages the
+  `screen`/`monitors`/`monitor` snapshot and publishes it only when complete,
+  so group code never sees an empty or partial list. AGENTS.md lists the
+  Xvfb suite.
   Group tests cover mixed sizes, narrow screens, member departure, separate
   groups/solo pets, sleeping/waking, path rejection and a held lock not
   delaying quit. Unit counts are now auto/GNOME 29 each, X11 23, with twelve
