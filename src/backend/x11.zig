@@ -1,20 +1,44 @@
-//! Thin Xlib layer: a transparent override-redirect window the size of the
+//! X11 backend: a transparent override-redirect window the size of the
 //! sprite, an XImage to blit into it, and an XFixes input shape so clicks
-//! outside the cat's pixels fall through to whatever is underneath.
+//! outside the pet's pixels fall through to whatever is underneath. This is
+//! also what runs under XWayland on GNOME and KDE.
 
 const std = @import("std");
 const c = @import("c");
+const backend = @import("../backend.zig");
 
-pub const Error = error{ NoDisplay, NoImage, OutOfMemory };
+pub const name = "x11";
 
-pub const PointerPos = struct { x: i32, y: i32 };
+const Error = backend.Error;
+const PointerPos = backend.PointerPos;
+const Rect = backend.Rect;
+const Event = backend.Event;
 
-pub const Event = union(enum) {
-    press: struct { button: u32, x_root: i32, y_root: i32, x: i32, y: i32 },
-    release: struct { button: u32, x_root: i32, y_root: i32 },
-    motion: struct { x_root: i32, y_root: i32 },
-    expose,
-};
+comptime {
+    // setInputShape passes a []Rect straight to XFixes, so the layouts must agree.
+    std.debug.assert(@sizeOf(Rect) == @sizeOf(c.XRectangle));
+    std.debug.assert(@offsetOf(Rect, "x") == @offsetOf(c.XRectangle, "x"));
+    std.debug.assert(@offsetOf(Rect, "y") == @offsetOf(c.XRectangle, "y"));
+    std.debug.assert(@offsetOf(Rect, "w") == @offsetOf(c.XRectangle, "width"));
+    std.debug.assert(@offsetOf(Rect, "h") == @offsetOf(c.XRectangle, "height"));
+}
+
+/// Sleep until an X connection or the extra descriptor has data, or the
+/// timeout passes. Each Window has its own connection, so each gets a slot.
+pub fn wait(windows: []const *const Window, extra_fd: ?c_int, timeout_ms: i32) void {
+    var fds: [8]c.pollfd = undefined;
+    var n: usize = 0;
+    for (windows) |w| {
+        if (n == fds.len) break;
+        fds[n] = .{ .fd = w.fd(), .events = c.POLLIN, .revents = 0 };
+        n += 1;
+    }
+    if (extra_fd) |fd| if (n < fds.len) {
+        fds[n] = .{ .fd = fd, .events = c.POLLIN, .revents = 0 };
+        n += 1;
+    };
+    _ = c.poll(&fds, @intCast(n), timeout_ms);
+}
 
 pub const Window = struct {
     dpy: *c.Display,
@@ -87,6 +111,7 @@ pub const Window = struct {
         _ = c.XCloseDisplay(self.dpy);
     }
 
+    /// The connection's descriptor, for `wait`.
     pub fn fd(self: *const Window) c_int {
         return c.XConnectionNumber(self.dpy);
     }
@@ -118,9 +143,9 @@ pub const Window = struct {
 
     /// Only these rectangles receive mouse input; everything else clicks
     /// through. An empty slice makes the whole window click-through.
-    pub fn setInputShape(self: *const Window, rects: []const c.XRectangle) void {
+    pub fn setInputShape(self: *const Window, rects: []const Rect) void {
         var none: [1]c.XRectangle = undefined;
-        const ptr: [*c]c.XRectangle = if (rects.len == 0) &none else @constCast(rects.ptr);
+        const ptr: [*c]c.XRectangle = if (rects.len == 0) &none else @ptrCast(@constCast(rects.ptr));
         const region = c.XFixesCreateRegion(self.dpy, ptr, @intCast(rects.len));
         c.XFixesSetWindowShapeRegion(self.dpy, self.win, c.ShapeInput, 0, 0, region);
         c.XFixesDestroyRegion(self.dpy, region);

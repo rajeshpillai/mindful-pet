@@ -4,6 +4,14 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Window backend. X11 is the only one so far and the default on every
+    // Unix; a GNOME Shell extension, AppKit or Win32 backend would be added
+    // to this enum and to src/backend.zig.
+    const Backend = enum { x11 };
+    const backend = b.option(Backend, "backend", "window backend (default: x11)") orelse .x11;
+    const build_options = b.addOptions();
+    build_options.addOption(Backend, "backend", backend);
+
     // Xlib, XFixes and a few libc headers, translated once by the build.
     const translate = b.addTranslateC(.{
         .root_source_file = b.path("src/c.h"),
@@ -20,12 +28,17 @@ pub fn build(b: *std.Build) void {
             .link_libc = true,
             .imports = &.{
                 .{ .name = "c", .module = translate.createModule() },
+                .{ .name = "build_options", .module = build_options.createModule() },
             },
         }),
     });
-    exe.root_module.linkSystemLibrary("X11", .{});
-    exe.root_module.linkSystemLibrary("Xfixes", .{});
-    exe.root_module.linkSystemLibrary("Xext", .{});
+    switch (backend) {
+        .x11 => {
+            exe.root_module.linkSystemLibrary("X11", .{});
+            exe.root_module.linkSystemLibrary("Xfixes", .{});
+            exe.root_module.linkSystemLibrary("Xext", .{});
+        },
+    }
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

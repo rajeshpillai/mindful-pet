@@ -41,12 +41,29 @@ agreed to tackle things; it is not a promise.
 
 ## 5. See the windows (the Wayland gap)
 
+- [x] Backend interface: `src/backend.zig` with comptime selection via
+      `-Dbackend`, X11 moved to `src/backend/x11.zig`
 - [ ] GNOME Shell extension backend: draws the sprite where the Zig core
       says over a Unix socket, reports pointer position and window geometry
 - [ ] Sit on window title bars, walk along window edges
 - [ ] Cursor chase over native Wayland windows
 
-## 6. Art pipeline
+## 6. Other platforms
+
+Each needs a sibling of `src/backend/x11.zig` (see AGENTS.md for the
+contract). The pipe and shell-audio code are POSIX and also need a home.
+
+- [ ] macOS: AppKit backend via the Objective-C runtime, borderless
+      non-activating NSWindow at status-bar level; `afplay` for sound
+- [ ] Windows: Win32 layered window (WS_EX_LAYERED | WS_EX_TRANSPARENT,
+      UpdateLayeredWindow), PlaySound; commands over a Win32 named pipe or a
+      local socket, and a petctl that is not bash
+- [ ] Native Wayland: not as a plain client (no absolute placement or global
+      pointer); the GNOME Shell extension above is the route on GNOME,
+      wlr-layer-shell could serve Sway/Hyprland
+- [ ] Move the command channel and audio behind small interfaces too
+
+## 7. Art pipeline
 
 - [ ] Load sprites from PNG so they can be drawn in Aseprite
 - [ ] Bigger base resolution (24x24 or 32x32)

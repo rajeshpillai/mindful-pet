@@ -39,7 +39,8 @@ src/main.zig        event loop, flags, rendering, Audio (embedded WAVs), bubble 
 src/pet.zig         state machine; knows nothing about X11 or audio
 src/sprites.zig     Frame format, palette, orientation mapping, Character struct, `all`
 src/characters/     cat.zig, dog.zig, rabbit.zig (16x16 ASCII art, facing right)
-src/x11.zig         window creation, XImage blit, XFixes input shape
+src/backend.zig     window backend interface: shared types, comptime selection, contract check
+src/backend/x11.zig Xlib implementation: window creation, XImage blit, XFixes input shape
 src/events.zig      named pipe reader + command parser
 src/font.zig        3x5 font + speech bubble painter
 scripts/petctl      send a command; `petctl run CMD`; `-n NAME` for named instances
@@ -64,8 +65,12 @@ tools/sheet.zig     sprite sheet dump; tools/gen_sounds.py regenerates src/asset
 
 ## Conventions
 
-- Keep compositor-specific code in `src/x11.zig`; a GNOME Shell extension
-  backend is planned and should slot in beside it.
+- Keep compositor-specific code in `src/backend/`. main.zig only uses
+  `backend.Window`, `backend.wait` and the shared types in `src/backend.zig`.
+  New backend (GNOME Shell extension, AppKit, Win32): add a file beside
+  x11.zig exporting `name`, `Window` and `wait`, a value to the `Backend`
+  enum in build.zig plus its system libraries, and an arm in the `impl`
+  switch in backend.zig. The comptime block there tells you what is missing.
 - New reaction: add frames to every file in `src/characters/` and a field in
   `sprites.Character`, a `State`/`Event` in pet.zig, a word in
   `events.parse`, the usage string in main.zig, `anims` in tools/sheet.zig,

@@ -1,6 +1,6 @@
 const std = @import("std");
 const c = @import("c");
-const x11 = @import("x11.zig");
+const backend = @import("backend.zig");
 const petmod = @import("pet.zig");
 const sprites = @import("sprites.zig");
 const events = @import("events.zig");
@@ -9,7 +9,7 @@ const font = @import("font.zig");
 const default_scale: u32 = 4;
 const max_scale: u32 = 12;
 const default_top: u32 = 32;
-const frame_ms: c_int = 33;
+const frame_ms: i32 = 33;
 
 /// Integer zoom of the 16x16 art, chosen on the command line.
 var scale: u32 = default_scale;
@@ -43,7 +43,7 @@ const usage =
 pub fn main(init: std.process.Init) !void {
     parseArgs(init.minimal.args);
 
-    var win = try x11.Window.init(size, size);
+    var win = try backend.Window.init(size, size);
     defer win.deinit();
     win.show();
 
@@ -51,7 +51,7 @@ pub fn main(init: std.process.Init) !void {
     // longest message; only the part a message needs gets painted.
     const text_scale: u32 = @max(1, scale / 2);
     const bubble_max = font.Layout.forChars(petmod.Pet.max_say, text_scale);
-    var bubble_win = try x11.Window.init(bubble_max.w, bubble_max.h);
+    var bubble_win = try backend.Window.init(bubble_max.w, bubble_max.h);
     defer bubble_win.deinit();
     bubble_win.setInputShape(&.{});
     var bubble_shown = false;
@@ -79,7 +79,7 @@ pub fn main(init: std.process.Init) !void {
 
     std.debug.print("pet: a {s}{s}{s}\n", .{ character.name, if (instance != null) " named " else "", instance orelse "" });
 
-    std.debug.print("pet: {d}x{d} screen, {s} window\n", .{ win.screen_w, win.screen_h, if (win.argb) "transparent" else "opaque (no ARGB visual)" });
+    std.debug.print("pet: {d}x{d} screen, {s} window ({s} backend)\n", .{ win.screen_w, win.screen_h, if (win.argb) "transparent" else "opaque (no ARGB visual)", backend.name });
     if (fifo) |f| std.debug.print("pet: commands via  echo fail > {s}\n", .{f.path()});
     std.debug.print("pet: left-click = meow, drag = carry, right-click = quit\n", .{});
 
@@ -93,11 +93,7 @@ pub fn main(init: std.process.Init) !void {
     var bubble_logged = false;
 
     while (true) {
-        var fds = [_]c.pollfd{
-            .{ .fd = win.fd(), .events = c.POLLIN, .revents = 0 },
-            .{ .fd = if (fifo) |f| f.fd else -1, .events = c.POLLIN, .revents = 0 },
-        };
-        _ = c.poll(&fds, fds.len, frame_ms);
+        backend.wait(&.{ &win, &bubble_win }, if (fifo) |f| f.fd else null, frame_ms);
 
         var input: petmod.Input = .{ .pointer_x = 0, .pointer_y = 0, .pointer_moved = false };
 
@@ -204,7 +200,7 @@ pub fn main(init: std.process.Init) !void {
             raise_timer = 0;
         }
         win.flush();
-        // The bubble has its own X connection, so it needs its own flush.
+        // The bubble is its own window (own X connection), so it needs its own flush.
         bubble_win.flush();
     }
 }
@@ -325,8 +321,8 @@ const Audio = struct {
 };
 
 /// Build horizontal runs of opaque pixels so only the cat itself is clickable.
-fn applyInputShape(win: *const x11.Window) void {
-    var rects: [sprites.W * max_scale * (sprites.W / 2 + 1)]c.XRectangle = undefined;
+fn applyInputShape(win: *const backend.Window) void {
+    var rects: [sprites.W * max_scale * (sprites.W / 2 + 1)]backend.Rect = undefined;
     var n: usize = 0;
     for (0..size) |y| {
         var x: usize = 0;
@@ -340,8 +336,8 @@ fn applyInputShape(win: *const x11.Window) void {
             rects[n] = .{
                 .x = @intCast(start),
                 .y = @intCast(y),
-                .width = @intCast(x - start),
-                .height = 1,
+                .w = @intCast(x - start),
+                .h = 1,
             };
             n += 1;
         }

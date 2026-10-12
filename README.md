@@ -161,7 +161,8 @@ src/main.zig     event loop, argument parsing, rendering into the window buffer
 src/pet.zig      the state machine (idle, walk, run, sit, sleep, alert, happy, angry, work, bat, climb, cling, hang, held, fall)
 src/sprites.zig  frame format, palette, orientation mapping, Character struct
 src/characters/  cat.zig, dog.zig, rabbit.zig: 16x16 ASCII frames per animal
-src/x11.zig      transparent override-redirect window, XImage blit, XFixes input shape
+src/backend.zig  window backend interface and selection (`zig build -Dbackend=x11`)
+src/backend/     x11.zig: transparent override-redirect window, XImage blit, XFixes input shape
 src/events.zig   named-pipe command reader and parser
 src/font.zig     3x5 bitmap font and the speech-bubble renderer
 src/c.h          the C headers translated by build.zig (Xlib, XFixes, libc bits)
@@ -185,9 +186,13 @@ sound clip names from `src/assets/` (or null for silence).
   windows, so cursor chasing only works over X11 applications and the cat
   itself. It also cannot sit on top of native windows reliably. The planned fix
   is a small GNOME Shell extension that draws the sprite where this Zig core
-  tells it to; the core already keeps all compositor-specific code in
-  `src/x11.zig`.
+  tells it to; the core already keeps all compositor-specific code behind
+  the backend interface in `src/backend.zig`.
 - The top edge is the screen's, not your editor's. Climbing an application
   window needs window geometry, which is the same Wayland gap as above.
 - Single monitor. It uses the root window size of the default screen.
+- **Linux only** for now. Windowing is X11, commands arrive on a POSIX named
+  pipe, and sounds go through pw-play/paplay/aplay/ffplay. Any X11 desktop
+  with a compositor works, and so does XWayland on GNOME, KDE or Sway. macOS
+  and Windows need a backend of their own; see TODO.md.
 - No sound yet. `meow!` goes to stderr.

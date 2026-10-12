@@ -28,7 +28,8 @@ Everything is committed; the tree is clean.
   XWayland. Cursor chasing therefore only works when the pointer is over X11
   windows or the cat itself. The long-term fix is a small GNOME Shell
   extension that draws where the Zig core says, over a Unix socket. All
-  compositor code is isolated in `src/x11.zig` for that reason.
+  compositor code is isolated behind `src/backend.zig` (implementation in
+  `src/backend/x11.zig`) for that reason.
 - No SDL or raylib installed; Zig bindings for them lag master anyway. Pure
   Xlib via `b.addTranslateC` (the `@cImport` builtin is gone in 0.17).
 - The user's own site https://ziglang.in is the Zig reference to use. Its
@@ -97,7 +98,8 @@ src/pet.zig      Pet struct, State/Event enums, update(), frame()
 src/sprites.zig  Frame/palette/Transform/source(), Character struct, `all` + byName()
 src/characters/  cat.zig, dog.zig, rabbit.zig; each exports `character`
 src/font.zig     3x5 font + drawBubble()
-src/x11.zig      Window.init/present/move/setInputShape/queryPointer/pollEvent
+src/backend.zig  backend interface: Window contract, Event/Rect/PointerPos, wait, -Dbackend
+src/backend/x11.zig  Xlib Window.init/present/move/setInputShape/queryPointer/pollEvent
 src/events.zig   Fifo (open, pollCommand, close+unlink) and parse()
 src/c.h          headers for the translate-c step
 scripts/petctl   pipe writer; `petctl run CMD` wraps a command
