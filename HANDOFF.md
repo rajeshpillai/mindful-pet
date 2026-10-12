@@ -10,7 +10,8 @@ The repo is github.com/rajeshpillai/mindful-pets; the local folder was
 once named "jarvis-bot", an old code name. The project is a desktop pet: a pixel-art
 cat that lives along the bottom of the screen, wanders, naps, chases the
 cursor, and reacts to events sent through a named pipe. Written in Zig
-(master, 0.17.0-dev.2056) over Xlib, running under XWayland on GNOME.
+(master, 0.17.0-dev.2056), using the GNOME Shell extension when available and
+Xlib/XWayland as the fallback.
 
 History in short (`git log --oneline` has the rest):
 
@@ -63,6 +64,11 @@ History in short (`git log --oneline` has the rest):
   Validated with all three backend unit suites, six private-socket/FIFO
   regressions, extension protocol/hit-testing checks, and a two-monitor
   headless GNOME round trip for both the new pet and the installed legacy pet.
+  Review follow-ups also cache input-mode messages, retain monitor notifications
+  outside the best-effort input queue, reset pointer tracking after origin
+  changes, normalize malformed protocol versions and isolate petctl's Python
+  interpreter. Seven integration regressions now cover these paths. Issue
+  notes live in `issues/`; the backwards-walking report remains open.
 
 ## Environment facts that shaped the design
 
@@ -104,7 +110,8 @@ History in short (`git log --oneline` has the rest):
   state machine, parser, font, characters, gnome protocol line handling.
 - Review regressions: `python3 tools/test_integration.py` after `zig build`
   covers live monitor size/origin changes, a disconnected bubble, negotiated
-  input control, legacy-extension compatibility and full/no-reader FIFOs.
+  input control/deduplication, legacy-extension compatibility, full/no-reader
+  FIFOs, interpreter isolation and oversized bubbles after monitor shrink.
   `node tools/test_extension.mjs` tests actual extension protocol and alpha
   hit-testing methods with a stub actor, including legacy clients and bubbles.
 - Live X11: xdotool click meows, drag carries, drop falls, transparent

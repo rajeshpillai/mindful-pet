@@ -159,7 +159,7 @@ class PetWindow {
         switch (cmd) {
         case 'hello': {
             const [w, h, version = 1] = rest.split(' ').map(Number);
-            this._protocol = version;
+            this._protocol = Number.isInteger(version) && version >= 2 ? version : 1;
             this._create(w, h);
             break;
         }

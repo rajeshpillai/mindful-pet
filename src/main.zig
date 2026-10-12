@@ -128,6 +128,7 @@ pub fn main(init: std.process.Init) !void {
                 input.drag = null;
                 if (pet.state == .held) input.drop = true;
                 drag = null;
+                last_ptr = win.queryPointer();
             },
             .disconnected => return,
         };

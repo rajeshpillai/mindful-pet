@@ -36,6 +36,11 @@ function window() {
 const legacy = window();
 legacy._handle('hello 64 64');
 assert.deepEqual(legacy.lines, ['screen 2076 1848']);
+for (const version of ['garbage', 'NaN', 'Infinity', '2.5', '0']) {
+    const malformed = window();
+    malformed._handle(`hello 64 64 ${version}`);
+    assert.deepEqual(malformed.lines, ['screen 2076 1848']);
+}
 const current = window();
 current._handle('hello 64 64 2');
 assert.deepEqual(current.lines, ['capabilities input', 'screen 710 1080 1366 768']);

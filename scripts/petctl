@@ -22,7 +22,7 @@ send() {
     [ -p "$fifo" ] || return 0
     # Neither open nor write may wait for a stopped pet. Keep each command
     # within PIPE_BUF so a write succeeds atomically or is dropped entirely.
-    python3 - "$fifo" "$*" <<'PY'
+    python3 -I -S - "$fifo" "$*" <<'PY'
 import os
 import stat
 import sys

@@ -106,6 +106,8 @@ pub const Window = struct {
     lost: bool = false,
     disconnect_reported: bool = false,
     supports_input: bool = false,
+    input_sent: ?bool = null,
+    screen_dirty: bool = false,
 
     pub fn init(w: u32, h: u32) Error!Window {
         const sock = connectSocket() orelse {
@@ -206,7 +208,11 @@ pub const Window = struct {
 
     /// Nonempty shapes use alpha hit-testing; an empty shape is click-through.
     pub fn setInputShape(self: *Window, rects: []const Rect) void {
-        if (self.supports_input) self.send(if (rects.len == 0) "input 0\n" else "input 1\n");
+        if (!self.supports_input) return;
+        const enabled = rects.len != 0;
+        if (self.input_sent) |sent| if (sent == enabled) return;
+        self.send(if (enabled) "input 1\n" else "input 0\n");
+        self.input_sent = enabled;
     }
 
     pub fn queryPointer(self: *Window) PointerPos {
@@ -220,6 +226,10 @@ pub const Window = struct {
             if (self.lost and !self.disconnect_reported) {
                 self.disconnect_reported = true;
                 return .disconnected;
+            }
+            if (self.screen_dirty) {
+                self.screen_dirty = false;
+                return .screen_changed;
             }
             return null;
         }
@@ -336,7 +346,7 @@ pub const Window = struct {
         self.screen_w = w;
         self.screen_h = h;
         self.last_move = null;
-        if (initialized) self.push(.screen_changed);
+        if (initialized) self.screen_dirty = true;
     }
 };
 
@@ -396,7 +406,7 @@ test "monitor changes invalidate moves and rebase the pointer" {
     try std.testing.expect(w.last_move == null);
     try std.testing.expectEqual(@as(i32, 720), w.pointer.x);
     try std.testing.expectEqual(@as(i32, 1100), w.pointer.y);
-    try std.testing.expect(w.queue[0] == .screen_changed);
+    try std.testing.expect(w.screen_dirty);
     try std.testing.expectEqual(@as(i32, 600), w.screen_h);
     w.handle("screen 0 0 0 0");
     try std.testing.expectEqual(@as(i32, 800), w.screen_w);
@@ -415,4 +425,17 @@ test "input control is negotiated separately from screen geometry" {
     try std.testing.expect(!w.supports_input);
     w.handle("capabilities input");
     try std.testing.expect(w.supports_input);
+}
+
+test "monitor notification survives a full input queue and coalesces updates" {
+    var w: Window = .{ .sock = -1, .pixels = undefined, .encoded = undefined, .encoded_len = 0, .w = 64, .h = 64, .screen_w = 1366, .screen_h = 768 };
+    for (&w.queue) |*event| event.* = .{ .motion = .{ .x_root = 0, .y_root = 0 } };
+    w.queue_len = w.queue.len;
+    w.handle("screen 0 0 800 600");
+    w.handle("screen 10 20 640 480");
+    for (0..w.queue.len) |_| try std.testing.expect(w.pollEvent().? == .motion);
+    try std.testing.expect(w.pollEvent().? == .screen_changed);
+    try std.testing.expect(w.pollEvent() == null);
+    try std.testing.expectEqual(@as(i32, 640), w.screen_w);
+    try std.testing.expectEqual(@as(i32, 480), w.screen_h);
 }

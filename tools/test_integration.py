@@ -131,6 +131,9 @@ class Integration(unittest.TestCase):
         bubble = next(w for w in shell.windows if not w["primary"])
         primary = next(w for w in shell.windows if w["primary"])
         wait_for(lambda: "input 0" in bubble["lines"] and "input 1" in primary["lines"])
+        self.command(fifo, "work")
+        time.sleep(0.5)  # multiple animation frames must not resend input mode
+        self.assertEqual(primary["lines"].count("input 1"), 1)
         self.command(fifo, "quit")
         self.assertEqual(pet.wait(timeout=1), 0)
 
@@ -171,6 +174,21 @@ class Integration(unittest.TestCase):
                 self.command(fifo, "quit")  # full: must drop, never wait
                 subprocess.run([str(ROOT / "scripts/petctl"), "run", "true"],
                                env={**os.environ, "PET_FIFO": str(fifo)}, timeout=1, check=True)
+            finally:
+                os.close(fd)
+
+    def test_petctl_ignores_python_environment(self):
+        with tempfile.TemporaryDirectory(prefix="mp-python-regression-") as runtime:
+            fifo = Path(runtime) / "pet.fifo"
+            os.mkfifo(fifo, 0o600)
+            fd = os.open(fifo, os.O_RDWR | os.O_NONBLOCK)
+            try:
+                env = {**os.environ, "PET_FIFO": str(fifo), "PYTHONHOME": "/nonexistent-python-home",
+                       "PYTHONPATH": runtime}
+                result = subprocess.run([str(ROOT / "scripts/petctl"), "ok"], env=env,
+                                        cwd=runtime, timeout=1, capture_output=True, check=True)
+                self.assertEqual(result.stderr, b"")
+                self.assertEqual(os.read(fd, 512), b"ok\n")
             finally:
                 os.close(fd)
 

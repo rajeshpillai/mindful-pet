@@ -5,8 +5,9 @@ roadmap, HANDOFF.md carries session-to-session state.
 
 ## What this is
 
-A desktop pet in Zig: a pixel-art cat, dog or rabbit in a transparent X11
-override-redirect window (runs under XWayland on GNOME). It reacts to
+A desktop pet in Zig: a pixel-art cat, dog or rabbit drawn by the GNOME Shell
+extension, with a transparent X11 override-redirect window as the fallback
+(runs under XWayland on GNOME). It reacts to
 commands on a named pipe and to Claude Code hooks. `jarvis-bot` was an old
 code name; the repo is github.com/rajeshpillai/mindful-pets.
 
