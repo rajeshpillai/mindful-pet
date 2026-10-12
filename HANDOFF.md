@@ -4,6 +4,16 @@ Status of the desktop-pet project as of 2026-10-12, for picking up in a fresh
 session. The README covers usage; this file covers decisions, state, and what
 to do next.
 
+Current release: primary-monitor confinement, off-screen recovery, independent
+`--roam` and coordinated `--roam-group NAME` are pushed to origin/main and
+shipped with `scripts/ship` (ReleaseSafe) to ~/Desktop/tools. The installed pet
+passed all twenty-one socket/FIFO regressions and both Xvfb checks; both tools
+match their release artifacts byte for byte. Final source is 63a7197.
+Extension v0.1.4 is installed and matches the repo; the running shell's cached
+copy was INACTIVE and remains disabled. Log out/in, then run
+`gnome-extensions enable mindful-pet@rajeshpillai.github.io` to load it.
+The backwards-walking report remains unreproduced in `issues/007-walking-backwards.md`.
+
 ## What this is
 
 The repo is github.com/rajeshpillai/mindful-pets; the local folder was
