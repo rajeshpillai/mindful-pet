@@ -1,7 +1,7 @@
 # GNOME speech bubbles consume clicks
 
 - Reported: 2026-10-12
-- Status: Fixed in extension v0.1.3; requires re-login to activate
+- Status: Fixed in installed extension v0.1.3; requires re-login to activate
 - Severity: P2
 
 ## Failure

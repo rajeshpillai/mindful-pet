@@ -59,8 +59,10 @@ History in short (`git log --oneline` has the rest):
   one-shot `disconnected` event. Chase destinations use the available space
   beside the pointer without collapsing onto screen edges. `petctl` uses
   Python 3 for atomic non-blocking writes, dropping full-pipe commands.
-  The updated extension still needs installation and re-login in the real
-  shell; shipping the binary alone does not reload GNOME's cached extension.
+  Release code at 638b44e was pushed to origin/main and shipped with
+  `scripts/ship` to ~/Desktop/tools. Extension v0.1.3 is installed; the
+  installer disabled the real shell's cached ACTIVE copy. Log out/in, then
+  enable mindful-pet@rajeshpillai.github.io to load the updated extension.
   Validated with all three backend unit suites, six private-socket/FIFO
   regressions, extension protocol/hit-testing checks, and a two-monitor
   headless GNOME round trip for both the new pet and the installed legacy pet.
@@ -68,7 +70,9 @@ History in short (`git log --oneline` has the rest):
   outside the best-effort input queue, reset pointer tracking after origin
   changes, normalize malformed protocol versions and isolate petctl's Python
   interpreter. Seven integration regressions now cover these paths. Issue
-  notes live in `issues/`; the backwards-walking report remains open.
+  notes live in `issues/`; the backwards-walking report remains open. The
+  final shipped binary passed all seven private-socket/FIFO regressions and
+  both installed tools matched the release artifacts byte for byte.
 
 ## Environment facts that shaped the design
 
