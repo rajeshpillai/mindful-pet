@@ -10,6 +10,10 @@ const backend = @import("../backend.zig");
 
 pub const name = "gnome";
 pub const socket_name = "mindful-pet-shell.sock";
+/// How long `send` waits for the shell to take a full socket's worth of data
+/// before giving up on it, and the poll slice between drains while waiting.
+const send_timeout_ms: i32 = 2000;
+const send_slice_ms: i32 = 20;
 
 const Error = backend.Error;
 const PointerPos = backend.PointerPos;
@@ -214,15 +218,37 @@ pub const Window = struct {
         return ev;
     }
 
+    /// Write a whole line without ever blocking for long. The shell and the
+    /// pet both write to each other, so if either side waited on a full
+    /// socket while the other did the same, both would hang (and the shell
+    /// is the desktop). While the socket is full the pet keeps reading the
+    /// shell's lines, and after `send_timeout_ms` it treats the shell as gone.
     fn send(self: *Window, data: []const u8) void {
+        if (self.lost) return;
         var off: usize = 0;
+        var waited_ms: i32 = 0;
         while (off < data.len) {
-            const n = c.write(self.sock, data[off..].ptr, data.len - off);
-            if (n <= 0) {
-                self.lost = true;
-                return;
+            const n = c.send(self.sock, data[off..].ptr, data.len - off, c.MSG_DONTWAIT | c.MSG_NOSIGNAL);
+            if (n > 0) {
+                off += @intCast(n);
+                continue;
             }
-            off += @intCast(n);
+            const err = std.posix.errno(n);
+            if (n < 0 and (err == .AGAIN or err == .INTR)) {
+                if (waited_ms >= send_timeout_ms) {
+                    std.debug.print("pet: the GNOME Shell extension stopped reading\n", .{});
+                    self.lost = true;
+                    return;
+                }
+                var pfd = [_]c.pollfd{.{ .fd = self.sock, .events = c.POLLOUT | c.POLLIN, .revents = 0 }};
+                _ = c.poll(&pfd, 1, send_slice_ms);
+                waited_ms += send_slice_ms;
+                self.drain();
+                if (self.lost) return;
+                continue;
+            }
+            self.lost = true; // closed or reset by the shell
+            return;
         }
     }
 

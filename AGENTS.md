@@ -44,7 +44,8 @@ src/backend/x11.zig Xlib implementation: window creation, XImage blit, XFixes in
 src/backend/gnome.zig  client of the GNOME Shell extension over a Unix socket; protocol in extension.js
 src/backend/auto.zig   default: probes the extension socket once, then wraps gnome or x11 for every window
 gnome-extension/    mindful-pet@rajeshpillai.github.io: GJS extension, one Clutter actor per pet window
-scripts/install-extension  copy the extension into ~/.local/share/gnome-shell/extensions and enable it
+scripts/install-extension  copy the extension into ~/.local/share/gnome-shell/extensions (enable rules inside)
+scripts/nested-shell       headless GNOME Shell with the extension, isolated from the real session, for tests
 src/events.zig      command vocabulary + parser (shared by every channel)
 src/channel.zig     command channel interface, chosen by OS; channel/fifo.zig is the named pipe
 src/audio.zig       embedded WAV clips + playback interface, chosen by OS; audio/shell.zig shells out to a player
@@ -68,17 +69,25 @@ tools/sheet.zig     sprite sheet dump; tools/gen_sounds.py regenerates src/asset
   second. xdotool works under XWayland for click/drag tests.
 - A Claude Code settings file created mid-session is not loaded until
   `/hooks` or a restart.
-- GNOME Shell on Wayland loads a new or changed extension only after logging
-  out and in. Test the extension in a nested shell instead:
-  `dbus-run-session -- gnome-shell --nested --wayland` with
-  `MUTTER_DEBUG_DUMMY_MODE_SPECS=1280x800`, started with `env -i` and a
-  minimal environment. The shell inherited from the VS Code snap carries
-  `GSETTINGS_SCHEMA_DIR`, `XDG_DATA_DIRS` and snap library paths that make
-  gnome-shell abort (schema key missing, then a core20 libpthread symbol
-  error). The nested shell reads the same dconf, so enable the extension with
-  `gsettings set org.gnome.shell enabled-extensions` if `gnome-extensions
-  enable` says it does not exist. Its log is the only view you get: no
-  screenshots of a nested shell either.
+- The extension runs on GNOME Shell's main thread. Anything that blocks there
+  freezes the whole desktop until a hard reboot; it happened on 2026-10-12
+  when a synchronous `write_all` to a pet socket nobody was reading filled the
+  kernel buffer. Rules: every write to a pet goes through `writer.js`
+  (non-blocking, bounded, drops a pet that stops reading); no `write_all`,
+  `read_line` or other synchronous I/O in extension.js; on the pet side every
+  window's socket is drained every frame (main.zig polls the bubble too) and
+  `gnome.zig` sends with `MSG_DONTWAIT` and gives up on a stalled shell.
+- GNOME Shell on Wayland reads an extension's files once. A new extension
+  loads after logging out and in, and a running shell keeps the old copy of a
+  changed one even across disable/enable, so `scripts/install-extension`
+  leaves an already loaded extension disabled until the next login. Test
+  changes in a headless shell instead: `scripts/nested-shell` starts one with
+  a private runtime dir, private GSettings (keyfile backend, extension
+  enabled) and `env -i`, because the shell inherited from the VS Code snap
+  carries `GSETTINGS_SCHEMA_DIR`, `XDG_DATA_DIRS` and snap library paths that
+  make gnome-shell abort. Run the pet and petctl with
+  `XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR/mp-nested`. Its log is the only view you
+  get: no screenshots and no pointer in a headless shell.
 - The `gnome` backend quits when the socket closes (extension disabled,
   shell restarted); it reports that as a right-click so main.zig needs no
   special case.

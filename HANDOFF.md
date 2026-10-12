@@ -21,6 +21,17 @@ History in short (`git log --oneline` has the rest):
   audio put behind interfaces (`src/backend.zig`, `src/channel.zig`,
   `src/audio.zig`); GNOME Shell extension backend; `auto` backend as the
   default build. Shipped to ~/Desktop/tools as commit 0eb5ce0.
+- 2026-10-12, later: first run of the shipped pet against the real extension
+  froze the laptop within a minute or two (hard reboot). Cause: the shell sent
+  `pointer` lines to every pet window with a blocking `write_all` on its main
+  thread, and the pet never read the bubble window's socket, so the kernel
+  buffer filled and the compositor blocked. Fixed on both sides (see AGENTS.md
+  pitfalls): `writer.js` non-blocking bounded writes in the extension,
+  `MSG_DONTWAIT` sends with a 2 s give-up in gnome.zig, and main.zig draining
+  the bubble window. Verified with a standalone gjs test of the writer against
+  a non-reading peer and a full round trip in a headless nested shell
+  (`scripts/nested-shell`). The real session has NOT run the fixed extension
+  yet: the running shell still holds the old copy, left disabled.
 
 Everything is committed and pushed; the tree is clean.
 
@@ -65,17 +76,25 @@ Everything is committed and pushed; the tree is clean.
   state machine, parser, font, characters, gnome protocol line handling.
 - Live X11: xdotool click meows, drag carries, drop falls, transparent
   corner clicks pass through, `petctl quit` exits and removes the pipe.
-- Live GNOME backend: only against a nested shell (see AGENTS.md pitfalls):
+- Live GNOME backend: against a headless nested shell (`scripts/nested-shell`):
   connect, screen size, frames, bubble, sound, clean quit for both windows,
-  and the auto build choosing gnome vs x11 correctly. Clicks and drags
-  through the extension are implemented but were never exercised by hand.
+  and the auto build choosing gnome vs x11 correctly. The extension's writer
+  has a standalone gjs test (a non-reading peer must stall it in
+  milliseconds; a reading peer must get every line in order); it lives in the
+  session scratchpad, not the repo, so rewrite it from writer.js if needed.
+  Clicks and drags through the extension are implemented but were never
+  exercised by hand.
 
 ## Open questions only the user can answer
 
-1. After the next login, does the shipped `pet` log "gnome backend", and do
-   pointer chase over native windows, left-click meow, drag/drop and
-   right-click quit all work through the extension? This is the first thing
-   to check next session; the extension is installed and enabled already.
+1. After the next login, enable the extension
+   (`gnome-extensions enable mindful-pet@rajeshpillai.github.io`), start the
+   shipped `pet` from a terminal, and move the mouse around for a minute: it
+   must not freeze (it did with the old extension). The pet logs "gnome
+   backend" when it picked the extension. Then: pointer chase over native
+   windows, left-click meow, drag/drop and right-click quit through the
+   extension, all still unverified by hand. Keep a `petctl quit` handy; if the
+   shell ever feels sluggish, `gnome-extensions disable` the extension first.
 2. Should the pet stay above the top bar and popups the way it does now
    (top chrome), or sit below shell UI? Easy to change in extension.js.
 3. Is `work` on every prompt too much during long agent turns?
@@ -105,7 +124,7 @@ src/audio.zig    clips + Audio interface (by OS); audio/shell.zig = pw-play/papl
 src/backend/x11.zig  Xlib Window.init/present/move/setInputShape/queryPointer/pollEvent
 src/backend/gnome.zig  socket client: hello/img/move/show/hide/raise out, screen/pointer/press/release in
 src/backend/auto.zig   default build; gnome.available() decides once, union(Kind) dispatch
-gnome-extension/     extension.js: SocketService, PetWindow (Clutter.Image actor, alpha hit-test, 30 Hz pointer)
+gnome-extension/     extension.js: SocketService, PetWindow (Clutter.Image actor, alpha hit-test, 30 Hz pointer); writer.js: non-blocking bounded line writer
 src/events.zig   Command union and parse(); the pipe itself is in channel/fifo.zig
 src/c.h          headers for the translate-c step
 scripts/petctl   pipe writer; `petctl run CMD` wraps a command

@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
 # Install (or update) the GNOME Shell extension for the `gnome` backend into
-# the user's extension directory and enable it. GNOME Shell on Wayland loads a
-# brand-new extension only after logging out and in; an update to an already
-# loaded one needs the same. Enabling and disabling is instant.
+# the user's extension directory. GNOME Shell on Wayland reads an extension's
+# files once, when it first loads them: a brand-new extension loads after
+# logging out and in, and a running shell keeps the OLD copy of a changed one
+# even across disable/enable. So when the running shell already has the
+# extension loaded, this script leaves it disabled (the stale copy must not
+# run against a newer pet) and the new copy is enabled after the next login.
 set -euo pipefail
 uuid="mindful-pet@rajeshpillai.github.io"
 src="$(cd "$(dirname "$0")/.." && pwd)/gnome-extension/$uuid"
 dest="$HOME/.local/share/gnome-shell/extensions/$uuid"
 
+state=$( (gnome-extensions info "$uuid" 2>/dev/null || true) | sed -n 's/^ *State: //p')
 mkdir -p "$(dirname "$dest")"
 rm -rf "$dest"
 cp -r "$src" "$dest"
-gnome-extensions enable "$uuid" 2>/dev/null || true
-state=$( (gnome-extensions info "$uuid" 2>/dev/null || true) | sed -n 's/^ *State: //p')
-echo "installed $uuid -> $dest (state: ${state:-not loaded yet})"
+echo "installed $uuid -> $dest"
 case "${state:-}" in
-  ACTIVE|ENABLED) echo "ready: zig build -Dbackend=gnome && zig-out/bin/pet" ;;
-  *) echo "log out and back in (or Alt+F2 'r' on X11), then run the pet built with -Dbackend=gnome" ;;
+  "")
+    # Not known to the running shell yet: ask for it to be enabled on login.
+    gnome-extensions enable "$uuid" 2>/dev/null || true
+    echo "log out and back in (or Alt+F2 'r' on X11); the auto/gnome pet then uses it" ;;
+  *)
+    gnome-extensions disable "$uuid" 2>/dev/null || true
+    echo "the running shell has the previous copy loaded (state was $state); left disabled."
+    echo "log out and back in, then: gnome-extensions enable $uuid" ;;
 esac

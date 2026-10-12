@@ -167,7 +167,7 @@ src/backend/     x11.zig: override-redirect window, XImage blit, XFixes input sh
                  gnome.zig: Unix-socket client of the GNOME Shell extension;
                  auto.zig: gnome if the extension answers, else x11 (the default)
 gnome-extension/ the GNOME Shell extension (one Clutter actor per pet window)
-scripts/install-extension  copies it into place and enables it
+scripts/install-extension  copies it into place; enabled after your next login (a running shell keeps the old copy)
 src/events.zig   command vocabulary and parser
 src/channel.zig  command channel interface; channel/fifo.zig is the named pipe
 src/audio.zig    embedded sound clips and playback interface; audio/shell.zig runs a CLI player

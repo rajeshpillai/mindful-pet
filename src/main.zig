@@ -124,6 +124,11 @@ pub fn main(init: std.process.Init) !void {
             },
             .expose => last_frame = null,
         };
+        // The bubble is click-through, so nothing it reports matters, but its
+        // socket (or X connection) must still be read: the GNOME backend sends
+        // pointer updates to every window, and an unread socket fills up and
+        // blocks the sender, which on GNOME is the shell itself.
+        while (bubble_win.pollEvent()) |_| {}
 
         const ptr = win.queryPointer();
         input.pointer_x = @floatFromInt(ptr.x);

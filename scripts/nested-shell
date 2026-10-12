@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Run a headless GNOME Shell with the Mindful Pet extension for testing, without
+# touching the real session: private XDG_RUNTIME_DIR, private GSettings
+# (keyfile backend), its own D-Bus. The real shell keeps whatever copy of the
+# extension it has loaded; this one loads the files currently installed in
+# ~/.local/share/gnome-shell/extensions (run scripts/install-extension first).
+#
+#   scripts/nested-shell                 # foreground; Ctrl-C stops it
+#   XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR/mp-nested zig-out/bin/pet     # in another shell
+#   XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR/mp-nested scripts/petctl say hi
+#
+# The shell's log is the only view you get (no screenshots, no pointer). Use
+# it to check connect/disconnect, bubbles, and clean quits.
+set -euo pipefail
+run="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/mp-nested"
+cfg="$run/config"
+rm -rf "$run"
+mkdir -p -m 700 "$run" "$cfg/glib-2.0/settings" "$run/cache"
+cat > "$cfg/glib-2.0/settings/keyfile" <<KEYS
+[org/gnome/shell]
+enabled-extensions=['mindful-pet@rajeshpillai.github.io']
+disable-user-extensions=false
+welcome-dialog-last-shown-version='999'
+KEYS
+echo "nested shell runtime dir: $run" >&2
+echo "run the pet with: XDG_RUNTIME_DIR=$run zig-out/bin/pet" >&2
+# env -i: the shell inherited from VS Code's snap carries GSETTINGS_SCHEMA_DIR,
+# XDG_DATA_DIRS and snap library paths that make gnome-shell abort.
+exec env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL=/bin/sh PATH=/usr/bin:/bin LANG=C.UTF-8 \
+  XDG_RUNTIME_DIR="$run" XDG_DATA_HOME="$HOME/.local/share" XDG_DATA_DIRS=/usr/share:/usr/local/share \
+  XDG_CONFIG_HOME="$cfg" XDG_CACHE_HOME="$run/cache" GSETTINGS_BACKEND=keyfile \
+  dbus-run-session -- gnome-shell --headless --wayland --virtual-monitor 1280x800 --no-x11

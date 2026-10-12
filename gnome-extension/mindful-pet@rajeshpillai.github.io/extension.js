@@ -24,6 +24,11 @@
 // with an XFixes input shape. The pet gets a `release` even when the drag ends
 // off the actor, because the shell watches the button state itself.
 //
+// Nothing here may block: this code runs on the compositor's main thread, and
+// a blocked write to a pet that is not reading would freeze the whole desktop
+// (it did, once). Writes go through LineWriter, which drops a pet that stops
+// reading; `pointer` lines are skipped while the pet is behind.
+//
 //     journalctl --user -f -o cat /usr/bin/gnome-shell | grep mindful-pet
 
 import Clutter from 'gi://Clutter';
@@ -32,6 +37,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
+import { LineWriter } from './writer.js';
 
 const LOG = '[mindful-pet]';
 const SOCKET_NAME = 'mindful-pet-shell.sock';
@@ -48,7 +54,12 @@ class PetWindow {
         this._conn = connection;
         this._owner = owner;
         this._cancel = new Gio.Cancellable();
-        this._out = connection.get_output_stream();
+        this._writer = new LineWriter(connection.get_socket(), this._cancel, {
+            onStall: reason => {
+                console.log(`${LOG} pet window ${this._w}x${this._h} stopped reading (${reason}), dropping it`);
+                this.destroy();
+            },
+        });
         this._in = new Gio.DataInputStream({ base_stream: connection.get_input_stream() });
         this._in.set_buffer_size(512 * 1024); // an `img` line for a 192px window is ~200 KB
         this._actor = null;
@@ -57,11 +68,15 @@ class PetWindow {
         this._h = 0;
         this._held = 0;
         this._lastPointer = null;
+        this._destroyed = false;
         this._readLine();
     }
 
     destroy() {
+        if (this._destroyed) return;
+        this._destroyed = true;
         this._cancel.cancel();
+        this._writer.close();
         if (this._actor)
             console.log(`${LOG} pet window ${this._w}x${this._h} disconnected`);
         if (this._actor) {
@@ -77,13 +92,10 @@ class PetWindow {
         this._owner._forget(this);
     }
 
+    /// Queue a line for the pet; never blocks. A pet that stops reading is
+    /// dropped by the writer's onStall.
     send(line) {
-        try {
-            this._out.write_all(new TextEncoder().encode(line + '\n'), null);
-        } catch (e) {
-            console.log(`${LOG} pet went away (${e.message})`);
-            this.destroy();
-        }
+        this._writer.send(line);
     }
 
     _readLine() {
@@ -198,7 +210,10 @@ class PetWindow {
     /// Called ~30 times a second while any pet is connected.
     tick(px, py, mods) {
         if (!this._actor) return;
-        if (!this._lastPointer || this._lastPointer[0] !== px || this._lastPointer[1] !== py) {
+        // Pointer updates are best effort: only while the pet is keeping up,
+        // so a slow pet gets the latest position later instead of a backlog.
+        if (this._writer.pending === 0 &&
+            (!this._lastPointer || this._lastPointer[0] !== px || this._lastPointer[1] !== py)) {
             this._lastPointer = [px, py];
             this.send(`pointer ${px} ${py}`);
         }
