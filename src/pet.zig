@@ -77,6 +77,10 @@ pub const Pet = struct {
     idle_for: f32 = 0,
     /// Seconds since the pointer last moved while the cat was chasing it.
     chase_stale: f32 = 0,
+    /// Where this chase ends relative to the pointer: a little to one side,
+    /// chosen per chase, so several pets running after the same pointer fan
+    /// out beside it instead of piling onto one pixel.
+    chase_offset: f32 = 0,
     /// Seconds the pointer has rested motionless on top of the cat.
     pointer_rest: f32 = 0,
     bat_cooldown: f32 = 0,
@@ -116,7 +120,26 @@ pub const Pet = struct {
     }
 
     pub fn floorY(self: *const Pet) f32 {
-        return self.screen_h - self.size;
+        return @max(0, self.screen_h - self.size);
+    }
+
+    /// Keep positions and destinations within the current monitor after a resize.
+    pub fn resize(self: *Pet, w: f32, h: f32) void {
+        const old_floor = self.floorY();
+        self.screen_w = w;
+        self.screen_h = h;
+        const floor = self.floorY();
+        self.top = std.math.clamp(self.top, 0, floor);
+        self.x = self.clampX(self.x);
+        self.target_x = self.clampX(self.target_x);
+        self.y = if (self.onFloorState()) floor else std.math.clamp(self.y, self.top, floor);
+        self.target_y = if (self.target_y == old_floor) floor else std.math.clamp(self.target_y, self.top, floor);
+        if (self.state == .climb or self.state == .cling) {
+            self.x = if (self.wall == .left) 0 else @max(0, w - self.size);
+        } else if (self.state == .hang) {
+            self.y = self.top;
+        }
+        if (self.climb_next) self.target_x = if (self.wall == .left) 0 else @max(0, w - self.size);
     }
 
     pub fn onEvent(self: *Pet, ev: Event) void {
@@ -267,7 +290,7 @@ pub const Pet = struct {
             },
             .run => {
                 if (in.pointer_moved) {
-                    self.target_x = self.clampX(in.pointer_x - self.size / 2);
+                    self.target_x = self.chaseTarget(in);
                     self.chase_stale = 0;
                 } else {
                     self.chase_stale += dt;
@@ -372,9 +395,31 @@ pub const Pet = struct {
 
     fn startChase(self: *Pet, in: Input) void {
         self.climb_next = false;
-        self.target_x = self.clampX(in.pointer_x - self.size / 2);
+        const side: f32 = if (self.rand.boolean()) 1 else -1;
+        self.chase_offset = side * self.randRange(0.75 * self.size, 1.75 * self.size);
+        self.target_x = self.chaseTarget(in);
         self.chase_stale = 0;
         self.enter(.run, forever);
+    }
+
+    /// Window x that puts the cat `chase_offset` beside the pointer.
+    fn chaseTarget(self: *const Pet, in: Input) f32 {
+        const base = self.clampX(in.pointer_x - self.size / 2);
+        const left = base;
+        const right = @max(0, self.screen_w - self.size) - base;
+        var side: f32 = if (self.chase_offset >= 0) 1 else -1;
+        var room = if (side > 0) right else left;
+        const other = if (side > 0) left else right;
+        if (room < 0.75 * self.size and other > room) {
+            side = -side;
+            room = other;
+        }
+        // Resample within the space available instead of collapsing offsets
+        // onto an edge. Keep the same per-chase random fraction as it moves.
+        const fraction = std.math.clamp(@abs(self.chase_offset) / self.size - 0.75, 0, 1);
+        const lo = @min(0.75 * self.size, room);
+        const hi = @min(1.75 * self.size, room);
+        return base + side * (lo + fraction * (hi - lo));
     }
 
     fn decide(self: *Pet) void {
@@ -416,7 +461,7 @@ pub const Pet = struct {
     }
 
     fn clampX(self: *const Pet, x: f32) f32 {
-        return std.math.clamp(x, 0, self.screen_w - self.size);
+        return std.math.clamp(x, 0, @max(0, self.screen_w - self.size));
     }
 
     fn randRange(self: *const Pet, lo: f32, hi: f32) f32 {
@@ -509,6 +554,69 @@ test "say shows a bubble that times out and is cut to max_say" {
     var big: [60]u8 = @splat('a');
     pet.say(&big);
     try std.testing.expectEqual(@as(usize, Pet.max_say), pet.bubble().?.len);
+}
+
+test "a chase ends beside the pointer, never on it, and pets spread out" {
+    var min_gap: f32 = 1e9;
+    var max_gap: f32 = 0;
+    var seed: u64 = 1;
+    while (seed <= 20) : (seed += 1) {
+        var prng = std.Random.DefaultPrng.init(seed);
+        var pet = Pet.init(prng.random(), &sprites.cat, 1920, 1080, 64, 32);
+        pet.x = 400;
+        const moving: Input = .{ .pointer_x = 600, .pointer_y = pet.y + 32, .pointer_moved = true };
+        pet.update(1.0 / 60.0, moving);
+        try std.testing.expectEqual(State.run, pet.state);
+        // Pointer stops; the cat finishes the run and sits.
+        const resting: Input = .{ .pointer_x = 600, .pointer_y = pet.y + 32, .pointer_moved = false };
+        run(&pet, 3, resting);
+        try std.testing.expectEqual(State.sit, pet.state);
+        const gap = pet.x + 32 - 600; // cat centre relative to the pointer
+        try std.testing.expect(@abs(gap) >= 0.75 * 64 and @abs(gap) <= 1.75 * 64);
+        min_gap = @min(min_gap, gap);
+        max_gap = @max(max_gap, gap);
+    }
+    // Over twenty seeds both sides of the pointer get used.
+    try std.testing.expect(min_gap < 0 and max_gap > 0);
+}
+
+test "chases at either edge keep distinct destinations beside the pointer" {
+    for ([_]f32{ 32, 1888 }) |pointer_x| {
+        var first: ?f32 = null;
+        var distinct = false;
+        for (1..21) |seed| {
+            var prng = std.Random.DefaultPrng.init(seed);
+            var p = Pet.init(prng.random(), &sprites.cat, 1920, 1080, 64, 32);
+            p.x = if (pointer_x < 960) 200 else 1700;
+            p.update(1.0 / 60.0, .{ .pointer_x = pointer_x, .pointer_y = p.y + 32, .pointer_moved = true });
+            try std.testing.expectEqual(State.run, p.state);
+            const gap = @abs(p.target_x + 32 - pointer_x);
+            try std.testing.expect(gap >= 48 and gap <= 112);
+            if (first) |x| {
+                distinct = distinct or x != p.target_x;
+            } else first = p.target_x;
+        }
+        try std.testing.expect(distinct);
+    }
+}
+
+test "resize keeps floor and climbing pets on the monitor" {
+    var prng = std.Random.DefaultPrng.init(1);
+    var p = Pet.init(prng.random(), &sprites.cat, 1366, 768, 64, 32);
+    p.x = 1200;
+    p.goTo(1300);
+    p.resize(800, 600);
+    try std.testing.expectEqual(@as(f32, 536), p.y);
+    try std.testing.expect(p.x <= 736 and p.target_x <= 736);
+    p.state = .climb;
+    p.wall = .right;
+    p.target_y = p.floorY();
+    p.resize(640, 480);
+    try std.testing.expectEqual(@as(f32, 576), p.x);
+    try std.testing.expectEqual(@as(f32, 416), p.target_y);
+    p.resize(32, 32);
+    try std.testing.expectEqual(@as(f32, 0), p.x);
+    try std.testing.expectEqual(@as(f32, 0), p.y);
 }
 
 test "pointer resting on the cat makes it bat, once per cooldown" {

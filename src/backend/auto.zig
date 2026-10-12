@@ -58,7 +58,7 @@ pub const Window = struct {
             .gnome => win.impl = .{ .gnome = try gnome.Window.init(w, h) },
             .x11 => win.impl = .{ .x11 = try x11.Window.init(w, h) },
         }
-        // Mirror the fields main.zig reads; they never change after init.
+        // Mirror the fields main.zig reads. Geometry is refreshed while polling.
         switch (win.impl) {
             inline else => |*inner| {
                 win.pixels = inner.pixels;
@@ -133,14 +133,27 @@ pub const Window = struct {
     }
 
     pub fn queryPointer(self: *Window) PointerPos {
-        return switch (self.impl) {
+        const ptr = switch (self.impl) {
             inline else => |*inner| inner.queryPointer(),
         };
+        self.syncScreen();
+        return ptr;
     }
 
     pub fn pollEvent(self: *Window) ?Event {
-        return switch (self.impl) {
+        const ev = switch (self.impl) {
             inline else => |*inner| inner.pollEvent(),
         };
+        self.syncScreen();
+        return ev;
+    }
+
+    fn syncScreen(self: *Window) void {
+        switch (self.impl) {
+            inline else => |*inner| {
+                self.screen_w = inner.screen_w;
+                self.screen_h = inner.screen_h;
+            },
+        }
     }
 };

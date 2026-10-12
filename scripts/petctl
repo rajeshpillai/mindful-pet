@@ -16,10 +16,26 @@ if [ -n "$name" ]; then fifo="${PET_FIFO:-$dir/pet-$name.fifo}"; else fifo="${PE
 
 send() {
     [ -p "$fifo" ] || return 0
-    # Open read+write: never blocks, even if the reader just went away.
-    { exec 3<>"$fifo"; } 2>/dev/null || return 0
-    printf '%s\n' "$*" >&3 2>/dev/null
-    exec 3>&-
+    # Neither open nor write may wait for a stopped pet. Keep each command
+    # within PIPE_BUF so a write succeeds atomically or is dropped entirely.
+    python3 - "$fifo" "$*" <<'PY'
+import os
+import stat
+import sys
+
+try:
+    fd = os.open(sys.argv[1], os.O_WRONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+except OSError:
+    sys.exit(0)
+try:
+    data = (sys.argv[2] + '\n').encode()
+    if stat.S_ISFIFO(os.fstat(fd).st_mode) and len(data) <= os.fpathconf(fd, 'PC_PIPE_BUF'):
+        os.write(fd, data)
+except OSError:
+    pass
+finally:
+    os.close(fd)
+PY
     return 0
 }
 

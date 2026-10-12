@@ -80,8 +80,15 @@ pub const Window = struct {
     h: u32,
     /// The shell composites our alpha, so this is always true.
     argb: bool = true,
+    /// Size of the monitor the pet lives on (the primary one).
     screen_w: i32,
     screen_h: i32,
+    /// Where that monitor sits in the shell's stage coordinates. Everything
+    /// on the wire is stage space; everything this type exposes is relative
+    /// to the monitor, so the pet never walks off into the gap beside a
+    /// smaller screen.
+    origin_x: i32 = 0,
+    origin_y: i32 = 0,
 
     pointer: PointerPos = .{ .x = 0, .y = 0 },
     /// Button held since the last `press`, so pointer updates become `motion`.
@@ -92,8 +99,10 @@ pub const Window = struct {
     queue: [32]Event = undefined,
     queue_head: usize = 0,
     queue_len: usize = 0,
-    /// Set by `drain` when the shell closed the socket; reported as a right-click.
+    /// Terminal connection failure; reported once as `disconnected`.
     lost: bool = false,
+    disconnect_reported: bool = false,
+    supports_input: bool = false,
 
     pub fn init(w: u32, h: u32) Error!Window {
         const sock = connectSocket() orelse {
@@ -110,6 +119,7 @@ pub const Window = struct {
         const prefix = "img ";
         const enc_len = prefix.len + std.base64.standard.Encoder.calcSize(bytes) + 1;
         const encoded: [*]u8 = @ptrCast(c.malloc(enc_len) orelse return error.OutOfMemory);
+        errdefer c.free(encoded);
         @memcpy(encoded[0..prefix.len], prefix);
         encoded[enc_len - 1] = '\n';
 
@@ -126,7 +136,8 @@ pub const Window = struct {
         @memset(win.pixels[0 .. w * h], 0);
 
         var hello: [64]u8 = undefined;
-        win.send(std.fmt.bufPrint(&hello, "hello {d} {d}\n", .{ w, h }) catch unreachable);
+        // Older extensions ignore the optional version and retain stage coordinates.
+        win.send(std.fmt.bufPrint(&hello, "hello {d} {d} 2\n", .{ w, h }) catch unreachable);
 
         // The extension answers with the screen size; give it a moment.
         var tries: u32 = 0;
@@ -171,7 +182,7 @@ pub const Window = struct {
         if (self.last_move) |m| if (m[0] == x and m[1] == y) return;
         self.last_move = .{ x, y };
         var buf: [48]u8 = undefined;
-        self.send(std.fmt.bufPrint(&buf, "move {d} {d}\n", .{ x, y }) catch return);
+        self.send(std.fmt.bufPrint(&buf, "move {d} {d}\n", .{ x + self.origin_x, y + self.origin_y }) catch return);
     }
 
     pub fn raise(self: *Window) void {
@@ -190,11 +201,9 @@ pub const Window = struct {
         _ = self;
     }
 
-    /// The shell decides hit-testing from the alpha channel of `img`, so the
-    /// rectangles are not needed.
+    /// Nonempty shapes use alpha hit-testing; an empty shape is click-through.
     pub fn setInputShape(self: *Window, rects: []const Rect) void {
-        _ = self;
-        _ = rects;
+        if (self.supports_input) self.send(if (rects.len == 0) "input 0\n" else "input 1\n");
     }
 
     pub fn queryPointer(self: *Window) PointerPos {
@@ -205,10 +214,9 @@ pub const Window = struct {
     pub fn pollEvent(self: *Window) ?Event {
         self.drain();
         if (self.queue_len == 0) {
-            if (self.lost) {
-                // The extension was disabled or the shell restarted: quit cleanly.
-                self.lost = false;
-                return .{ .press = .{ .button = 3, .x_root = 0, .y_root = 0, .x = 0, .y = 0 } };
+            if (self.lost and !self.disconnect_reported) {
+                self.disconnect_reported = true;
+                return .disconnected;
             }
             return null;
         }
@@ -260,6 +268,7 @@ pub const Window = struct {
 
     /// Read whatever the shell has sent and turn complete lines into state and events.
     fn drain(self: *Window) void {
+        if (self.lost) return;
         while (true) {
             if (self.rx_len == self.rx.len) self.rx_len = 0; // garbage line, drop it
             const n = c.recv(self.sock, self.rx[self.rx_len..].ptr, self.rx.len - self.rx_len, c.MSG_DONTWAIT);
@@ -281,6 +290,12 @@ pub const Window = struct {
     fn handle(self: *Window, line: []const u8) void {
         var it = std.mem.tokenizeScalar(u8, line, ' ');
         const cmd = it.next() orelse return;
+        if (std.mem.eql(u8, cmd, "capabilities")) {
+            while (it.next()) |cap| {
+                if (std.mem.eql(u8, cap, "input")) self.supports_input = true;
+            }
+            return;
+        }
         var nums: [5]i32 = .{ 0, 0, 0, 0, 0 };
         var count: usize = 0;
         while (it.next()) |tok| : (count += 1) {
@@ -288,18 +303,37 @@ pub const Window = struct {
             nums[count] = std.fmt.parseInt(i32, tok, 10) catch return;
         }
         if (std.mem.eql(u8, cmd, "pointer") and count >= 2) {
-            self.pointer = .{ .x = nums[0], .y = nums[1] };
-            if (self.held != null) self.push(.{ .motion = .{ .x_root = nums[0], .y_root = nums[1] } });
+            const x = nums[0] - self.origin_x;
+            const y = nums[1] - self.origin_y;
+            self.pointer = .{ .x = x, .y = y };
+            if (self.held != null) self.push(.{ .motion = .{ .x_root = x, .y_root = y } });
         } else if (std.mem.eql(u8, cmd, "press") and count >= 5) {
             self.held = @intCast(nums[0]);
-            self.push(.{ .press = .{ .button = @intCast(nums[0]), .x_root = nums[1], .y_root = nums[2], .x = nums[3], .y = nums[4] } });
+            self.push(.{ .press = .{ .button = @intCast(nums[0]), .x_root = nums[1] - self.origin_x, .y_root = nums[2] - self.origin_y, .x = nums[3], .y = nums[4] } });
         } else if (std.mem.eql(u8, cmd, "release") and count >= 3) {
             self.held = null;
-            self.push(.{ .release = .{ .button = @intCast(nums[0]), .x_root = nums[1], .y_root = nums[2] } });
+            self.push(.{ .release = .{ .button = @intCast(nums[0]), .x_root = nums[1] - self.origin_x, .y_root = nums[2] - self.origin_y } });
+        } else if (std.mem.eql(u8, cmd, "screen") and count >= 4) {
+            self.setScreen(nums[0], nums[1], nums[2], nums[3]);
         } else if (std.mem.eql(u8, cmd, "screen") and count >= 2) {
-            self.screen_w = nums[0];
-            self.screen_h = nums[1];
+            // An older extension: the whole stage, origin 0,0.
+            self.setScreen(0, 0, nums[0], nums[1]);
         }
+    }
+
+    fn setScreen(self: *Window, x: i32, y: i32, w: i32, h: i32) void {
+        if (w <= 0 or h <= 0) return;
+        const changed = self.screen_w != w or self.screen_h != h or self.origin_x != x or self.origin_y != y;
+        if (!changed) return;
+        const initialized = self.screen_w > 0;
+        self.pointer.x += self.origin_x - x;
+        self.pointer.y += self.origin_y - y;
+        self.origin_x = x;
+        self.origin_y = y;
+        self.screen_w = w;
+        self.screen_h = h;
+        self.last_move = null;
+        if (initialized) self.push(.screen_changed);
     }
 };
 
@@ -310,8 +344,12 @@ test "shell lines become events" {
     w.queue_len = 0;
     w.pointer = .{ .x = 0, .y = 0 };
     w.screen_w = 0;
+    w.screen_h = 0;
+    w.origin_x = 0;
+    w.origin_y = 0;
     w.handle("screen 1920 1080");
     try std.testing.expectEqual(@as(i32, 1920), w.screen_w);
+    try std.testing.expectEqual(@as(i32, 0), w.origin_x);
     w.handle("pointer 10 20");
     try std.testing.expectEqual(@as(usize, 0), w.queue_len); // no drag, no motion event
     w.handle("press 1 10 20 3 4");
@@ -321,4 +359,57 @@ test "shell lines become events" {
     try std.testing.expectEqual(@as(u32, 1), w.queue[0].press.button);
     try std.testing.expectEqual(@as(i32, 15), w.queue[1].motion.x_root);
     try std.testing.expect(w.queue[2] == .release);
+}
+
+test "a monitor away from the stage origin is reported in its own coordinates" {
+    var w: Window = undefined;
+    w.held = null;
+    w.queue_head = 0;
+    w.queue_len = 0;
+    w.pointer = .{ .x = 0, .y = 0 };
+    w.screen_w = 0;
+    w.screen_h = 0;
+    w.origin_x = 0;
+    w.origin_y = 0;
+    // A 1366x768 laptop panel centred under a 1920x1080 monitor.
+    w.handle("screen 710 1080 1366 768");
+    try std.testing.expectEqual(@as(i32, 1366), w.screen_w);
+    try std.testing.expectEqual(@as(i32, 768), w.screen_h);
+    w.handle("pointer 720 1100");
+    try std.testing.expectEqual(@as(i32, 10), w.pointer.x);
+    try std.testing.expectEqual(@as(i32, 20), w.pointer.y);
+    w.handle("press 1 720 1100 3 4");
+    const ev = w.queue[w.queue_head];
+    try std.testing.expectEqual(@as(i32, 10), ev.press.x_root);
+    try std.testing.expectEqual(@as(i32, 20), ev.press.y_root);
+    try std.testing.expectEqual(@as(i32, 3), ev.press.x);
+}
+
+test "monitor changes invalidate moves and rebase the pointer" {
+    var w: Window = .{ .sock = -1, .pixels = undefined, .encoded = undefined, .encoded_len = 0, .w = 64, .h = 64, .screen_w = 1366, .screen_h = 768, .origin_x = 710, .origin_y = 1080 };
+    w.last_move = .{ 100, 704 };
+    w.pointer = .{ .x = 10, .y = 20 };
+    w.handle("screen 0 0 800 600");
+    try std.testing.expect(w.last_move == null);
+    try std.testing.expectEqual(@as(i32, 720), w.pointer.x);
+    try std.testing.expectEqual(@as(i32, 1100), w.pointer.y);
+    try std.testing.expect(w.queue[0] == .screen_changed);
+    try std.testing.expectEqual(@as(i32, 600), w.screen_h);
+    w.handle("screen 0 0 0 0");
+    try std.testing.expectEqual(@as(i32, 800), w.screen_w);
+}
+
+test "disconnect is reported once without reviving the connection" {
+    var w: Window = .{ .sock = -1, .pixels = undefined, .encoded = undefined, .encoded_len = 0, .w = 64, .h = 64, .screen_w = 800, .screen_h = 600, .lost = true };
+    try std.testing.expect(w.pollEvent().? == .disconnected);
+    try std.testing.expect(w.pollEvent() == null);
+    try std.testing.expect(w.lost);
+}
+
+test "input control is negotiated separately from screen geometry" {
+    var w: Window = .{ .sock = -1, .pixels = undefined, .encoded = undefined, .encoded_len = 0, .w = 64, .h = 64, .screen_w = 0, .screen_h = 0 };
+    w.handle("screen 1280 800");
+    try std.testing.expect(!w.supports_input);
+    w.handle("capabilities input");
+    try std.testing.expect(w.supports_input);
 }

@@ -30,10 +30,39 @@ History in short (`git log --oneline` has the rest):
   `MSG_DONTWAIT` sends with a 2 s give-up in gnome.zig, and main.zig draining
   the bubble window. Verified with a standalone gjs test of the writer against
   a non-reading peer and a full round trip in a headless nested shell
-  (`scripts/nested-shell`). The real session has NOT run the fixed extension
-  yet: the running shell still holds the old copy, left disabled.
-
-Everything is committed and pushed; the tree is clean.
+  (`scripts/nested-shell`).
+- 2026-10-12, after a re-login: the fixed extension ran in the real session.
+  The shipped `pet` picked it ("gnome backend" in its log), a click meowed
+  through the extension, no freeze, shell CPU normal. Two things showed up
+  within minutes, both addressed in the review release below:
+  (a) the user's monitors are stacked (1920x1080 HDMI
+  above a 1366x768 laptop panel at x=710) and the extension reported the
+  whole 2076x1848 stage, so the pet walked along the stage floor into the
+  gap beside the laptop panel and vanished. Now the extension sends
+  `screen X Y W H` for the primary monitor and gnome.zig translates every
+  coordinate, so pet.zig and main.zig never see stage space. Needs
+  `scripts/install-extension` plus another logout/login to reach the real
+  shell; verified headlessly with `scripts/nested-shell --ext ... --virtual-monitor 1366x768`.
+  (b) Several pets chasing one pointer all targeted the same pixel and piled
+  up; each chase now picks a random spot 0.75 to 1.75 sizes beside the
+  pointer (`chase_offset` in pet.zig). The user also reported the pet
+  "walking backwards" under the extension; rendering is shared with X11 and
+  the frames face right on the sheet, so this is unexplained. Ask which
+  state it was in (floor walk, run after the pointer, hanging from the top).
+- 2026-10-12, review release: fixed six review findings. Protocol v2 is
+  requested with `hello W H 2`; new clients receive `capabilities input`
+  then monitor geometry, while old clients receive the legacy `screen W H`
+  stage size. `input 0` keeps bubbles click-through. Monitor size/origin
+  changes invalidate cached moves, update the auto wrapper, and resize/clamp
+  the state machine. Either socket disconnect exits cleanly through a
+  one-shot `disconnected` event. Chase destinations use the available space
+  beside the pointer without collapsing onto screen edges. `petctl` uses
+  Python 3 for atomic non-blocking writes, dropping full-pipe commands.
+  The updated extension still needs installation and re-login in the real
+  shell; shipping the binary alone does not reload GNOME's cached extension.
+  Validated with all three backend unit suites, six private-socket/FIFO
+  regressions, extension protocol/hit-testing checks, and a two-monitor
+  headless GNOME round trip for both the new pet and the installed legacy pet.
 
 ## Environment facts that shaped the design
 
@@ -46,11 +75,10 @@ Everything is committed and pushed; the tree is clean.
   compositor code is isolated behind `src/backend.zig` for that reason. Done
   on 2026-10-12: `src/backend/gnome.zig` plus `gnome-extension/`, tested
   against a nested shell (hello/screen/img/move/say/quit round trip, clean
-  exit). Not yet tested in the real session: that needs a re-login so GNOME
-  loads the extension; the shipped `pet` (auto backend) then picks it up by
-  itself and logs "gnome backend". Pointer
-  chasing over native windows, click, drag and right-click-quit through the
-  extension are implemented but unverified by hand.
+  exit). The real-session backend and left-click meow were verified after
+  re-login. Pointer chasing over native windows, drag/drop and right-click
+  quit still need hand verification. Later extension updates require another
+  re-login before the real session uses the new files.
 - No SDL or raylib installed; Zig bindings for them lag master anyway. Pure
   Xlib via `b.addTranslateC` (the `@cImport` builtin is gone in 0.17).
 - The user's own site https://ziglang.in is the Zig reference to use. Its
@@ -74,6 +102,11 @@ Everything is committed and pushed; the tree is clean.
 
 - `zig build test` for all three backends (`-Dbackend=auto|x11|gnome`):
   state machine, parser, font, characters, gnome protocol line handling.
+- Review regressions: `python3 tools/test_integration.py` after `zig build`
+  covers live monitor size/origin changes, a disconnected bubble, negotiated
+  input control, legacy-extension compatibility and full/no-reader FIFOs.
+  `node tools/test_extension.mjs` tests actual extension protocol and alpha
+  hit-testing methods with a stub actor, including legacy clients and bubbles.
 - Live X11: xdotool click meows, drag carries, drop falls, transparent
   corner clicks pass through, `petctl quit` exits and removes the pipe.
 - Live GNOME backend: against a headless nested shell (`scripts/nested-shell`):
@@ -87,14 +120,10 @@ Everything is committed and pushed; the tree is clean.
 
 ## Open questions only the user can answer
 
-1. After the next login, enable the extension
-   (`gnome-extensions enable mindful-pet@rajeshpillai.github.io`), start the
-   shipped `pet` from a terminal, and move the mouse around for a minute: it
-   must not freeze (it did with the old extension). The pet logs "gnome
-   backend" when it picked the extension. Then: pointer chase over native
-   windows, left-click meow, drag/drop and right-click quit through the
-   extension, all still unverified by hand. Keep a `petctl quit` handy; if the
-   shell ever feels sluggish, `gnome-extensions disable` the extension first.
+1. Done on 2026-10-12: the extension ran in the real session without a
+   freeze, and a left-click meowed. Still unverified by hand through the
+   extension: pointer chase over native windows, drag/drop, right-click quit.
+   Also: in which state was the pet "walking backwards"?
 2. Should the pet stay above the top bar and popups the way it does now
    (top chrome), or sit below shell UI? Easy to change in extension.js.
 3. Is `work` on every prompt too much during long agent turns?
@@ -108,7 +137,9 @@ Ordered as discussed on 2026-10-12, after the hand test above:
    surfaces in pet.zig.
 2. Quality of life: break the animation loops (stretch, yawn, tail flick),
    real sound recordings, a config file, then a systemd user service.
-3. Later: multi-monitor awareness, macOS/Windows backends (TODO section 6).
+3. Later: multi-monitor for the X11 backend and a `--monitor` flag (the
+   GNOME backend already keeps to the primary monitor), macOS/Windows
+   backends (TODO section 6).
 
 ## Code map
 

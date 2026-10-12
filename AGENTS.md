@@ -88,9 +88,10 @@ tools/sheet.zig     sprite sheet dump; tools/gen_sounds.py regenerates src/asset
   make gnome-shell abort. Run the pet and petctl with
   `XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR/mp-nested`. Its log is the only view you
   get: no screenshots and no pointer in a headless shell.
-- The `gnome` backend quits when the socket closes (extension disabled,
-  shell restarted); it reports that as a right-click so main.zig needs no
-  special case.
+- The `gnome` backend reports socket closure once as `disconnected`.
+  main.zig quits when either the pet or bubble connection disconnects.
+  Monitor updates report `screen_changed`; auto.zig refreshes its mirrored
+  geometry before main.zig resizes the state machine.
 
 ## Conventions
 

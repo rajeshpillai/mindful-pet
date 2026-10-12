@@ -5,8 +5,8 @@ on the edges of your screen. It wanders, naps, climbs the sides, hangs from the 
 down, chases your mouse, swipes at it, and reacts with sounds to events you
 send it from scripts (a failed build, a finished deploy, a Claude Code hook).
 
-It is a prototype. The window layer talks to X11 directly, so on a Wayland
-desktop it runs through XWayland. See [Limitations](#limitations).
+It is a prototype. The default backend uses the GNOME Shell extension when
+available and otherwise talks to X11 through XWayland. See [Limitations](#limitations).
 
 ## Requirements
 
@@ -16,6 +16,7 @@ desktop it runs through XWayland. See [Limitations](#limitations).
   Not needed for the GNOME backend below.
 - An X server or XWayland with a 32-bit ARGB visual (any compositing desktop)
 - For sound, one of `pw-play`, `paplay`, `aplay` or `ffplay` on PATH (optional)
+- Python 3 for `scripts/petctl` (non-blocking command writes)
 
 ## Build and run
 
@@ -26,6 +27,8 @@ zig build run -- --scale 6
 zig build run -- --pet dog --name rex   # a second animal with its own pipe
 zig build test       # unit tests for the state machine and command parser
 zig build sheet      # dump every animation frame to zig-out/sheet.ppm
+python3 tools/test_integration.py  # private sockets/FIFOs; no real desktop is touched
+node tools/test_extension.mjs     # extension protocol and click-through checks (Node.js)
 ```
 
 ## Command line
@@ -53,7 +56,7 @@ Mouse:
 
 | Action | Result |
 | --- | --- |
-| Move the pointer near it | It runs after the pointer, then sits down. |
+| Move the pointer near it | It runs after the pointer and sits down beside it. Several pets each pick their own spot, so they do not pile up. |
 | Rest the pointer on it | After about a second it swipes a paw at it. |
 | Left click | It startles and meows. |
 | Drag | Carry it anywhere. Drop it above the floor and it falls. |
@@ -115,7 +118,9 @@ The pet listens on a named pipe at `$XDG_RUNTIME_DIR/pet.fifo` (or
 ### petctl and shell integration
 
 `scripts/petctl` wraps the pipe and is a silent no-op when the cat is not
-running, so it is safe in hooks and makefiles:
+running, so it is safe in hooks and makefiles. Writes are non-blocking and
+atomic. A full pipe or a command larger than the pipe's atomic-write limit is
+dropped, so a stopped pet cannot hold up a hook:
 
 ```sh
 scripts/petctl fail              # one command
@@ -125,7 +130,7 @@ scripts/petctl run zig build     # cat works while the command runs, then ok/fai
 `scripts/pet.sh` adds shortcuts to your shell. Source it from `~/.bashrc`:
 
 ```sh
-source /path/to/jarvis-bot/scripts/pet.sh
+source /path/to/mindful-pets/scripts/pet.sh
 zb            # zig build, cat reacts to the result
 zt            # zig build test
 pet_run make  # any command
@@ -198,12 +203,22 @@ layer; it talks to the extension over a Unix socket.
 ```sh
 scripts/install-extension          # copies gnome-extension/ into ~/.local/share/gnome-shell/extensions
 # log out and back in once, so GNOME Shell loads the new extension
+gnome-extensions enable mindful-pet@rajeshpillai.github.io
 zig build && zig-out/bin/pet       # the default `auto` backend now finds it
 ```
 
 The default build is the `auto` backend: it uses the extension when it is
 running and falls back to X11 otherwise, and the startup log says which. Force
 one with `zig build -Dbackend=x11` or `-Dbackend=gnome`. GNOME 46 to 48.
+
+With several monitors the pet lives on the primary one (the one with the top
+bar). The X11 backend does not know about monitors yet and treats the whole
+desktop as one screen.
+
+The pet handles changes to the primary monitor's size and position while
+running. New clients negotiate monitor coordinates and click-through bubbles;
+older clients keep the legacy whole-desktop protocol. A new binary also works
+with an older extension, with the older extension's limitations until re-login.
 
 ## Limitations
 
@@ -215,9 +230,10 @@ one with `zig build -Dbackend=x11` or `-Dbackend=gnome`. GNOME 46 to 48.
   for a wlr-layer-shell backend.
 - The top edge is the screen's, not your editor's. Climbing an application
   window needs window geometry, which is the same Wayland gap as above.
-- Single monitor. It uses the root window size of the default screen.
+- The GNOME backend stays on the primary monitor. The X11 backend uses the
+  whole root-window size; monitor selection is still on the roadmap.
 - **Linux only** for now. Windowing is X11, commands arrive on a POSIX named
   pipe, and sounds go through pw-play/paplay/aplay/ffplay. Any X11 desktop
   with a compositor works, and so does XWayland on GNOME, KDE or Sway. macOS
   and Windows need a backend of their own; see TODO.md.
-- No sound yet. `meow!` goes to stderr.
+- Sounds are synthesized placeholders; real recordings are on the roadmap.

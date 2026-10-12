@@ -10,14 +10,23 @@
 // Protocol: one Unix socket at $XDG_RUNTIME_DIR/mindful-pet-shell.sock, one
 // connection per pet window, newline-separated text lines both ways.
 //
-//   pet -> shell   hello W H            window size; must be the first line
+//   pet -> shell   hello W H [VERSION]  window size; must be the first line
 //                  img BASE64           W*H*4 bytes, BGRA premultiplied (0xAARRGGBB little-endian)
 //                  move X Y             screen coordinates
 //                  show | hide | raise
-//   shell -> pet   screen W H           sent once on connect, and when monitors change
+//                  input 0|1           click-through or alpha hit-testing (v2)
+//   shell -> pet   capabilities input  before screen, for v2 peers
+//   shell -> pet   screen X Y W H       the primary monitor's rectangle in stage
+//                                       coordinates; sent once on connect, and
+//                                       when monitors change
 //                  pointer X Y          whenever the pointer moves
 //                  press B X Y LX LY    button 1/2/3, screen coords, window-local coords
 //                  release B X Y
+// Legacy peers omit VERSION: they receive screen W H for the whole stage.
+//
+// Every coordinate on the wire is in stage (whole-desktop) space. The pet keeps
+// to one monitor, so its side of the protocol translates with the `screen`
+// origin; the shell only reports where that monitor is.
 //
 // Clicks land on the actor only where its pixels are opaque; elsewhere it is
 // made non-reactive so they fall through, which is what the X11 backend does
@@ -38,6 +47,18 @@ import GLib from 'gi://GLib';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { LineWriter } from './writer.js';
+
+// The monitor the pet lives on. With several monitors the stage is their
+// bounding box, and its bottom edge may lie beside, not under, a screen, so
+// a pet that walked along the stage floor could leave every monitor.
+function screenLine(version = 1) {
+    if (version < 2)
+        return `screen ${global.screen_width} ${global.screen_height}`;
+    const m = Main.layoutManager.primaryMonitor;
+    if (m)
+        return `screen ${m.x} ${m.y} ${m.width} ${m.height}`;
+    return `screen 0 0 ${global.screen_width} ${global.screen_height}`;
+}
 
 const LOG = '[mindful-pet]';
 const SOCKET_NAME = 'mindful-pet-shell.sock';
@@ -67,6 +88,8 @@ class PetWindow {
         this._w = 0;
         this._h = 0;
         this._held = 0;
+        this._protocol = 1;
+        this._inputEnabled = true;
         this._lastPointer = null;
         this._destroyed = false;
         this._readLine();
@@ -123,7 +146,8 @@ class PetWindow {
             } catch (e) {
                 console.log(`${LOG} bad line "${line.slice(0, 40)}": ${e.message}`);
             }
-            this._readLine();
+            if (!this._destroyed)
+                this._readLine();
         });
     }
 
@@ -133,7 +157,8 @@ class PetWindow {
         const rest = sp < 0 ? '' : line.slice(sp + 1);
         switch (cmd) {
         case 'hello': {
-            const [w, h] = rest.split(' ').map(Number);
+            const [w, h, version = 1] = rest.split(' ').map(Number);
+            this._protocol = version;
             this._create(w, h);
             break;
         }
@@ -162,6 +187,11 @@ class PetWindow {
         case 'raise':
             if (this._actor)
                 this._actor.get_parent()?.set_child_above_sibling(this._actor, null);
+            break;
+        case 'input':
+            this._inputEnabled = rest === '1';
+            if (!this._inputEnabled && this._actor)
+                this._actor.reactive = false;
             break;
         default:
             throw new Error('unknown command');
@@ -196,7 +226,10 @@ class PetWindow {
         });
         // Above windows, hidden while a fullscreen window has focus.
         Main.layoutManager.addTopChrome(this._actor, { affectsInputRegion: false });
-        this.send(`screen ${global.screen_width} ${global.screen_height}`);
+        if (this._protocol >= 2)
+            this.send('capabilities input');
+        this.send(screenLine(this._protocol));
+        if (this._destroyed) return;
         this._owner._ensureTick();
         console.log(`${LOG} pet window ${w}x${h} connected (${this._owner._windows.size} open)`);
     }
@@ -220,7 +253,8 @@ class PetWindow {
         // A drag that ends off the actor never delivers a release event to it.
         if (this._held && !(mods & BUTTON_MASKS[this._held]))
             this._release(this._held, px, py);
-        this._actor.reactive = this._held !== 0 || this._opaqueAt(px, py);
+        if (this._actor)
+            this._actor.reactive = this._inputEnabled && (this._held !== 0 || this._opaqueAt(px, py));
     }
 
     _opaqueAt(px, py) {
@@ -233,7 +267,7 @@ class PetWindow {
     }
 
     screenChanged() {
-        this.send(`screen ${global.screen_width} ${global.screen_height}`);
+        this.send(screenLine(this._protocol));
     }
 }
 

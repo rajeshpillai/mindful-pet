@@ -123,12 +123,21 @@ pub fn main(init: std.process.Init) !void {
                 };
             },
             .expose => last_frame = null,
+            .screen_changed => {
+                pet.resize(@floatFromInt(win.screen_w), @floatFromInt(win.screen_h));
+                input.drag = null;
+                if (pet.state == .held) input.drop = true;
+                drag = null;
+            },
+            .disconnected => return,
         };
         // The bubble is click-through, so nothing it reports matters, but its
         // socket (or X connection) must still be read: the GNOME backend sends
         // pointer updates to every window, and an unread socket fills up and
         // blocks the sender, which on GNOME is the shell itself.
-        while (bubble_win.pollEvent()) |_| {}
+        while (bubble_win.pollEvent()) |ev| {
+            if (ev == .disconnected) return;
+        }
 
         const ptr = win.queryPointer();
         input.pointer_x = @floatFromInt(ptr.x);
@@ -185,9 +194,10 @@ pub fn main(init: std.process.Init) !void {
             const cat_x: i32 = @intFromFloat(pet.x);
             const cat_y: i32 = @intFromFloat(pet.y);
             const half: i32 = @intCast(size / 2);
-            const bx = std.math.clamp(cat_x + half - @divTrunc(bw, 2), 0, win.screen_w - bw);
+            const bx = std.math.clamp(cat_x + half - @divTrunc(bw, 2), 0, @max(0, win.screen_w - bw));
             const above = cat_y - bh - 2;
-            const by = if (above >= 0) above else cat_y + @as(i32, @intCast(size)) + 2;
+            const wanted_y = if (above >= 0) above else cat_y + @as(i32, @intCast(size)) + 2;
+            const by = std.math.clamp(wanted_y, 0, @max(0, win.screen_h - bh));
             bubble_win.move(bx, by);
             if (debug_events and !bubble_logged) {
                 std.debug.print("pet: bubble '{s}' {d}x{d} at {d},{d}\n", .{ text, bw, bh, bx, by });

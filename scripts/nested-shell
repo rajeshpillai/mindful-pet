@@ -6,19 +6,34 @@
 # ~/.local/share/gnome-shell/extensions (run scripts/install-extension first).
 #
 #   scripts/nested-shell                 # foreground; Ctrl-C stops it
+#   scripts/nested-shell --ext gnome-extension/mindful-pet@rajeshpillai.github.io
+#                                        # load the repo copy instead of the installed one
+#   scripts/nested-shell --virtual-monitor 1366x768   # extra flags go to gnome-shell,
+#                                        # e.g. a second monitor beside the first
 #   XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR/mp-nested zig-out/bin/pet     # in another shell
 #   XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR/mp-nested scripts/petctl say hi
 #
 # The shell's log is the only view you get (no screenshots, no pointer). Use
 # it to check connect/disconnect, bubbles, and clean quits.
 set -euo pipefail
+uuid="mindful-pet@rajeshpillai.github.io"
 run="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/mp-nested"
 cfg="$run/config"
+data="$HOME/.local/share"
+ext=""
+if [ "${1:-}" = "--ext" ]; then ext="$(cd "$2" && pwd)"; shift 2; fi
 rm -rf "$run"
 mkdir -p -m 700 "$run" "$cfg/glib-2.0/settings" "$run/cache"
+if [ -n "$ext" ]; then
+  # A private data dir so the shell loads this copy and nothing else from ~/.local/share.
+  data="$run/data"
+  mkdir -p "$data/gnome-shell/extensions"
+  cp -r "$ext" "$data/gnome-shell/extensions/$uuid"
+  echo "loading extension from $ext" >&2
+fi
 cat > "$cfg/glib-2.0/settings/keyfile" <<KEYS
 [org/gnome/shell]
-enabled-extensions=['mindful-pet@rajeshpillai.github.io']
+enabled-extensions=['$uuid']
 disable-user-extensions=false
 welcome-dialog-last-shown-version='999'
 KEYS
@@ -27,6 +42,6 @@ echo "run the pet with: XDG_RUNTIME_DIR=$run zig-out/bin/pet" >&2
 # env -i: the shell inherited from VS Code's snap carries GSETTINGS_SCHEMA_DIR,
 # XDG_DATA_DIRS and snap library paths that make gnome-shell abort.
 exec env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL=/bin/sh PATH=/usr/bin:/bin LANG=C.UTF-8 \
-  XDG_RUNTIME_DIR="$run" XDG_DATA_HOME="$HOME/.local/share" XDG_DATA_DIRS=/usr/share:/usr/local/share \
+  XDG_RUNTIME_DIR="$run" XDG_DATA_HOME="$data" XDG_DATA_DIRS=/usr/share:/usr/local/share \
   XDG_CONFIG_HOME="$cfg" XDG_CACHE_HOME="$run/cache" GSETTINGS_BACKEND=keyfile \
-  dbus-run-session -- gnome-shell --headless --wayland --virtual-monitor 1280x800 --no-x11
+  dbus-run-session -- gnome-shell --headless --wayland --virtual-monitor 1280x800 --no-x11 "$@"

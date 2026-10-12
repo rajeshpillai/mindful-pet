@@ -50,6 +50,10 @@ pub const Event = union(enum) {
     motion: struct { x_root: i32, y_root: i32 },
     /// The window contents were lost and must be painted again.
     expose,
+    /// Monitor geometry changed; read the window's current screen dimensions.
+    screen_changed,
+    /// The compositor connection closed. Delivered once per window.
+    disconnected,
 };
 
 // The contract every backend's `Window` must meet. Checked at compile time

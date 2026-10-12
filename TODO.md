@@ -38,6 +38,12 @@ agreed to tackle things; it is not a promise.
 - [ ] systemd user service for autostart (decide at the end of this round)
 - [ ] Config file for speeds, nap time, scale, top margin
 - [ ] Multi-monitor awareness
+  - [x] GNOME backend: the extension reports the primary monitor's
+        rectangle and `gnome.zig` translates, so the pet stays on it
+        (including live size/origin changes; legacy clients remain compatible)
+  - [ ] X11 backend: pick the primary output via XRandR instead of the
+        whole XWayland screen
+  - [ ] `--monitor` flag to choose another one
 
 ## 5. See the windows (the Wayland gap)
 
@@ -75,5 +81,7 @@ contract). The pipe and shell-audio code are POSIX and also need a home.
 
 - [ ] Load sprites from PNG so they can be drawn in Aseprite
 - [ ] Bigger base resolution (24x24 or 32x32)
+- [x] Several pets chasing one pointer fan out beside it instead of
+      stacking on one pixel (per-chase random offset)
 - [ ] Let pets notice each other (sit together, chase)
 - [ ] Per-animal behaviour (rabbit hops in arcs, dog fetches the cursor)
