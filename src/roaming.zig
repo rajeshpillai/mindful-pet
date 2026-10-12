@@ -19,11 +19,7 @@ pub const Roaming = struct {
     /// floor state instead of interrupting a command, a nap, climbing or carrying.
     pub fn tick(self: *Roaming, dt: f32, monitors: *const geometry.Monitors, current: geometry.Monitor, pet: *const petmod.Pet) ?geometry.Monitor {
         self.remaining -= dt;
-        if (self.remaining > 0 or monitors.len < 2 or pet.climb_next) return null;
-        switch (pet.state) {
-            .idle, .sit, .walk => {},
-            else => return null,
-        }
+        if (self.remaining > 0 or monitors.len < 2 or !ready(pet)) return null;
         var candidates: [32]geometry.Monitor = undefined;
         var n: usize = 0;
         for (monitors.items[0..monitors.len]) |m| {
@@ -38,6 +34,14 @@ pub const Roaming = struct {
 
     fn interval(rand: std.Random) f32 {
         return 30 + rand.float(f32) * 30;
+    }
+
+    pub fn ready(pet: *const petmod.Pet) bool {
+        if (pet.climb_next) return false;
+        return switch (pet.state) {
+            .idle, .sit, .walk => true,
+            else => false,
+        };
     }
 };
 

@@ -44,6 +44,7 @@ src/main.zig        event loop, flags, rendering, bubble window
 src/pet.zig         state machine; knows nothing about X11 or audio
 src/monitors.zig    shared desktop-space monitor rectangles (gaps excluded)
 src/roaming.zig     optional autonomous monitor visits, waiting for quiet floor states
+src/roam_group.zig  named roaming groups: shared plans via non-blocking file locks
 src/sprites.zig     Frame format, palette, orientation mapping, Character struct, `all`
 src/characters/     cat.zig, dog.zig, rabbit.zig (16x16 ASCII art, facing right)
 src/backend.zig     window backend interface: shared types, comptime selection, contract check

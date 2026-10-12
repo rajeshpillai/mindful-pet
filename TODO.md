@@ -46,6 +46,8 @@ agreed to tackle things; it is not a promise.
         whole XWayland screen
   - [x] Recover off-screen positions each frame; `--roam` visits other
         monitors, follows the pointer and allows dragging between them
+  - [x] Independent roaming per pet and named `--roam-group` coordination
+        for shared monitor visits and spaced walking destinations
   - [ ] `--monitor` flag to choose another one
 
 ## 5. See the windows (the Wayland gap)

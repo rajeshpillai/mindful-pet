@@ -7,6 +7,7 @@ const channel = @import("channel.zig");
 const audio_mod = @import("audio.zig");
 const font = @import("font.zig");
 const roaming_mod = @import("roaming.zig");
+const group_mod = @import("roam_group.zig");
 
 const default_scale: u32 = 4;
 const max_scale: u32 = 12;
@@ -21,12 +22,13 @@ var size: u32 = sprites.W * default_scale;
 var top: u32 = default_top;
 var mute: bool = false;
 var roam: bool = false;
+var roam_group: ?[]const u8 = null;
 var character: *const sprites.Character = &sprites.cat;
 /// Instance name: selects pet-NAME.fifo so several pets can run at once.
 var instance: ?[]const u8 = null;
 
 const usage =
-    \\usage: pet [--pet cat|dog|rabbit] [--name NAME] [--scale N] [--top N] [--roam] [--mute] [--help]
+    \\usage: pet [--pet cat|dog|rabbit] [--name NAME] [--scale N] [--top N] [--roam | --roam-group NAME] [--mute] [--help]
     \\
     \\A small animal that lives on the edges of your screen.
     \\
@@ -37,6 +39,7 @@ const usage =
     \\  --top N     pixels reserved for the top panel; the cat hangs below it (default 32)
     \\  --roam      visit other monitors, follow the pointer and drag between them
     \\              (default: stay on the primary monitor)
+    \\  --roam-group NAME  roam together with pets in this group, with space between them
     \\  --mute      no sounds
     \\  -h, --help  show this help
     \\
@@ -82,11 +85,15 @@ pub fn main(init: std.process.Init) !void {
 
     var audio = audio_mod.Audio.init(!mute);
     var roaming = roaming_mod.Roaming.init(prng.random());
+    var group: ?group_mod.Group = if (roam_group) |n| try group_mod.Group.open(n, nowNs() ^ (@as(u64, @intCast(c.getpid())) << 32)) else null;
+    defer if (group) |*g| g.close();
+    var group_revision: u64 = 0;
 
     std.debug.print("pet: a {s}{s}{s}\n", .{ character.name, if (instance != null) " named " else "", instance orelse "" });
 
     std.debug.print("pet: {d}x{d} screen, {s} window ({s} backend)\n", .{ win.screen_w, win.screen_h, if (win.argb) "transparent" else "opaque (no ARGB visual)", win.backendName() });
     if (roam) std.debug.print("pet: roaming between monitors\n", .{});
+    if (roam_group) |n| std.debug.print("pet: roaming with group {s}\n", .{n});
     if (commands) |ch| std.debug.print("pet: commands via  echo fail > {s}\n", .{ch.path()});
     std.debug.print("pet: left-click = meow, drag = carry, right-click = quit\n", .{});
 
@@ -103,6 +110,7 @@ pub fn main(init: std.process.Init) !void {
         backend.wait(&.{ &win, &bubble_win }, if (commands) |ch| ch.wakeFd() else null, frame_ms);
 
         var input: petmod.Input = .{ .pointer_x = 0, .pointer_y = 0, .pointer_moved = false };
+        var requested_monitor: ?backend.Monitor = null;
 
         while (win.pollEvent()) |ev| switch (ev) {
             .press => |p| switch (p.button) {
@@ -152,6 +160,7 @@ pub fn main(init: std.process.Init) !void {
         input.pointer_moved = ptr.x != last_ptr.x or ptr.y != last_ptr.y;
         if (roam and (input.pointer_moved or input.drag != null)) {
             if (win.monitors.at(ptr.x + win.origin_x, ptr.y + win.origin_y)) |m| {
+                requested_monitor = m;
                 if (m.x != win.origin_x or m.y != win.origin_y or m.w != win.screen_w or m.h != win.screen_h) {
                     const dx = win.origin_x - m.x;
                     const dy = win.origin_y - m.y;
@@ -189,7 +198,28 @@ pub fn main(init: std.process.Init) !void {
         const dt: f32 = @floatCast(@min((now - last_ms) / 1000.0, 0.1));
         last_ms = now;
         pet.update(dt, input);
-        if (roam and drag == null and input.drag == null and !input.drop and !input.clicked) {
+        const free_to_roam = drag == null and input.drag == null and !input.drop and !input.clicked;
+        if (group) |*g| {
+            const current: backend.Monitor = .{ .x = win.origin_x, .y = win.origin_y, .w = win.screen_w, .h = win.screen_h };
+            const ready = free_to_roam and roaming_mod.Roaming.ready(&pet);
+            if (try g.poll(@intFromFloat(now), size, &win.monitors, current, requested_monitor, ready, prng.random())) |plan| {
+                if (ready) {
+                    const changed = !std.meta.eql(current, plan.monitor);
+                    if (changed) {
+                        const m = plan.monitor;
+                        pet.relocate(@floatFromInt(current.x - m.x), @floatFromInt(current.y - m.y), @floatFromInt(m.w), @floatFromInt(m.h));
+                        win.useMonitor(m);
+                        bubble_win.useMonitor(m);
+                        last_ptr = win.queryPointer();
+                    }
+                    if (changed or plan.revision != group_revision or @abs(pet.target_x + pet.size / 2 - plan.target_x) > 1) {
+                        pet.goTo(plan.target_x);
+                        group_revision = plan.revision;
+                        if (debug_events) std.debug.print("pet: group {s} monitor {d},{d} walk to {d:.1}\n", .{ roam_group.?, plan.monitor.x, plan.monitor.y, plan.target_x });
+                    }
+                }
+            }
+        } else if (roam and free_to_roam) {
             const current: backend.Monitor = .{ .x = win.origin_x, .y = win.origin_y, .w = win.screen_w, .h = win.screen_h };
             if (roaming.tick(dt, &win.monitors, current, &pet)) |m| {
                 pet.relocate(@floatFromInt(current.x - m.x), @floatFromInt(current.y - m.y), @floatFromInt(m.w), @floatFromInt(m.h));
@@ -284,6 +314,12 @@ fn parseArgs(args: std.process.Args) void {
         } else if (std.mem.eql(u8, arg, "--mute")) {
             mute = true;
         } else if (std.mem.eql(u8, arg, "--roam")) {
+            roam = true;
+        } else if (std.mem.eql(u8, arg, "--roam-group")) {
+            const value = it.next() orelse fail("--roam-group needs a group name");
+            if (value.len == 0 or value.len > 32) fail("group names must be 1..32 characters");
+            for (value) |ch| if (!std.ascii.isAlphanumeric(ch) and ch != '-' and ch != '_') fail("group names may only use letters, digits, - and _");
+            roam_group = value;
             roam = true;
         } else if (std.mem.eql(u8, arg, "--pet")) {
             const value = it.next() orelse fail("--pet needs cat, dog or rabbit");

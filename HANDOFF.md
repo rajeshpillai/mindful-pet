@@ -89,6 +89,21 @@ History in short (`git log --oneline` has the rest):
   installed v2/new v3 clients and a real autonomous visit to the second
   monitor with a clean shell log. Extension v0.1.4 requires a new login to
   load. Notes: `issues/009-monitor-roaming.md`.
+- Group roaming: `--roam` keeps independent per-pet schedules;
+  `--roam-group NAME` implies roaming and shares monitor visits and walking
+  destinations with same-name members. Different groups stay independent.
+  Goals are spaced by member body sizes and fitted to narrow monitors.
+  Any member can advance the plan under a non-blocking file lock; there is
+  no permanent leader. Busy/sleeping/carried pets rejoin when available,
+  and departed members expire after three seconds. A private state file is
+  retained in the runtime directory to avoid inode races during joining.
+  The file is versioned, validated and opened without following symlinks.
+  Group tests cover mixed sizes, narrow screens, member departure, separate
+  groups/solo pets, sleeping/waking, path rejection and a held lock not
+  delaying quit. Unit counts are now auto/GNOME 29 each, X11 23, with twelve
+  integration regressions. Notes: `issues/010-group-roaming.md`.
+  In headless GNOME, a cat and dog in the same group autonomously visited
+  the second monitor with destinations 80 pixels apart and a clean shell log.
 
 ## Environment facts that shaped the design
 
@@ -178,6 +193,7 @@ src/main.zig     event loop, --scale/--help parsing, render(), input shape; resi
 src/pet.zig      Pet struct, State/Event enums, update(), frame(), resize() after monitor changes, chaseTarget()
 src/monitors.zig monitor rectangles/lookup excluding desktop gaps
 src/roaming.zig  autonomous monitor selection during quiet floor states
+src/roam_group.zig shared walking/monitor plans and bounded group membership
 src/sprites.zig  Frame/palette/Transform/source(), Character struct, `all` + byName()
 src/characters/  cat.zig, dog.zig, rabbit.zig; each exports `character`
 src/font.zig     3x5 font + drawBubble()

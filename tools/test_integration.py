@@ -174,6 +174,94 @@ class Integration(unittest.TestCase):
         self.command(fifo, "quit")
         self.assertEqual(pet.wait(timeout=1), 0)
 
+    def test_multiple_pets_share_only_their_named_group_and_resume_after_sleep(self):
+        temp = tempfile.TemporaryDirectory(prefix="mp-groups-regression-")
+        self.addCleanup(temp.cleanup)
+        runtime = Path(temp.name)
+        shell = FakeShell(runtime)
+        self.addCleanup(shell.close)
+        env = {**os.environ, "XDG_RUNTIME_DIR": str(runtime), "PET_DEBUG": "1"}
+        clients = []
+        for name, group in (("cat", "friends"), ("dog", "friends"), ("rabbit", "other"), ("solo", None)):
+            count = len(shell.windows)
+            args = [str(BINARY), "--mute", "--name", name, "--pet", name if name != "solo" else "cat"]
+            args.extend(["--roam-group", group] if group else ["--roam"])
+            pet = subprocess.Popen(args, env=env, stderr=subprocess.PIPE)
+            def cleanup(pet=pet):
+                if pet.poll() is None:
+                    pet.terminate()
+                pet.communicate(timeout=2)
+            self.addCleanup(cleanup)
+            fifo = runtime / f"pet-{name}.fifo"
+            wait_for(lambda: fifo.exists() and len(shell.windows) == count + 2)
+            primary = next(w for w in shell.windows[count:] if w["primary"])
+            wait_for(lambda: bool(primary["moves"]))
+            clients.append((pet, fifo, primary))
+        cat, dog, other, solo = clients
+        self.command(dog[1], "sleep")
+        time.sleep(0.1)
+        cat[2]["conn"].sendall(b"pointer 100 500\n")
+        wait_for(lambda: cat[2]["moves"][-1][1] == 1016)
+        time.sleep(0.3)
+        self.assertEqual(dog[2]["moves"][-1][1], 1784, "sleep should delay joining a group visit")
+        self.command(dog[1], "wake")
+        wait_for(lambda: dog[2]["moves"][-1][1] == 1016)
+        self.assertEqual(other[2]["moves"][-1][1], 1784, "a different group must stay independent")
+        self.assertEqual(solo[2]["moves"][-1][1], 1784, "--roam must not join a group implicitly")
+        self.assertEqual(len(list(runtime.glob("pet-roam-*.state"))), 2)
+        # A group has no permanent leader: the surviving pet keeps responding.
+        self.command(cat[1], "quit")
+        self.assertEqual(cat[0].wait(timeout=1), 0)
+        dog[2]["conn"].sendall(b"pointer 1000 1800\n")
+        wait_for(lambda: dog[2]["moves"][-1][1] == 1784)
+        logs = []
+        for pet, fifo, _ in clients:
+            if pet.poll() is None:
+                self.command(fifo, "quit")
+            _, log = pet.communicate(timeout=2)
+            self.assertEqual(pet.returncode, 0, log.decode())
+            logs.append(log.decode())
+        self.assertIn("group friends monitor 0,0 walk to", logs[0])
+        self.assertIn("group friends monitor 0,0 walk to", logs[1])
+
+    def test_group_rejects_unsafe_paths_and_does_not_wait_on_a_locked_plan(self):
+        shell, pet, fifo = self.start()
+        runtime = fifo.parent
+        env = {**os.environ, "XDG_RUNTIME_DIR": str(runtime)}
+        for name in ("../escape", "", "x" * 33):
+            result = subprocess.run([str(BINARY), "--roam-group", name], env=env, capture_output=True, timeout=1)
+            self.assertEqual(result.returncode, 2)
+        path = runtime / f"pet-roam-{os.geteuid()}-unsafe.state"
+        victim = runtime / "untouched"
+        victim.write_text("keep this")
+        path.symlink_to(victim)
+        result = subprocess.run([str(BINARY), "--mute", "--name", "unsafe", "--roam-group", "unsafe"],
+                                env=env, capture_output=True, timeout=2)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(victim.read_text(), "keep this")
+        # Holding the plan lock must not delay socket processing or clean quit.
+        import fcntl
+        lock_path = runtime / f"pet-roam-{os.geteuid()}-locked.state"
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            member = subprocess.Popen([str(BINARY), "--mute", "--name", "locked", "--roam-group", "locked"],
+                                      env=env, stderr=subprocess.PIPE)
+            try:
+                member_fifo = runtime / "pet-locked.fifo"
+                wait_for(member_fifo.exists)
+                self.command(member_fifo, "quit")
+                _, log = member.communicate(timeout=1)
+                self.assertEqual(member.returncode, 0, log.decode())
+            finally:
+                if member.poll() is None:
+                    member.terminate()
+                    member.communicate(timeout=2)
+        finally:
+            os.close(fd)
+        self.command(fifo, "quit")
+        self.assertEqual(pet.wait(timeout=1), 0)
+
     def test_bubble_disconnect_exits_cleanly(self):
         shell, pet, _ = self.start()
         bubble = next(w for w in shell.windows if not w["primary"])

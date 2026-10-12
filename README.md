@@ -36,7 +36,7 @@ python3 tools/test_x11.py         # primary/roaming/resize checks (Xvfb, xrandr,
 ## Command line
 
 ```
-pet [--pet cat|dog|rabbit] [--name NAME] [--scale N] [--top N] [--roam] [--mute] [--help]
+pet [--pet cat|dog|rabbit] [--name NAME] [--scale N] [--top N] [--roam | --roam-group NAME] [--mute] [--help]
 
   --pet KIND  which animal: cat (default), dog or rabbit
   --name NAME run as a named instance listening on pet-NAME.fifo, so you can
@@ -45,6 +45,7 @@ pet [--pet cat|dog|rabbit] [--name NAME] [--scale N] [--top N] [--roam] [--mute]
   --top N     pixels reserved for the top panel; the cat hangs below it (default 32)
   --roam      visit other monitors, follow the pointer and drag between them
               (default: stay on the primary monitor)
+  --roam-group NAME  roam together with pets in this group, with space between them
   --mute      no sounds
   -h, --help  show this help
 ```
@@ -108,6 +109,28 @@ PET_NAME=bun petctl fail
 The hooks and shell shortcuts talk to the unnamed pet unless `PET_NAME` is
 set in that shell. Each animal has its own sounds: the cat meows, purrs and
 hisses, the dog woofs, pants and growls, the rabbit squeaks and thumps.
+
+Each pet with `--roam` chooses its own monitor visits. For pets that should
+travel together, give them the same `--roam-group` name:
+
+```sh
+pet --name luna --roam-group friends &
+pet --pet dog --name rex --roam-group friends &
+pet --pet rabbit --name bun --roam &  # independent
+```
+
+Group members share monitor visits and walking destinations, with spacing
+based on their body sizes. They pick another destination every 8–16 seconds
+and visit another monitor every 30–60 seconds. Moving or dragging one member
+to another monitor brings available group members along; busy, sleeping or
+carried pets rejoin when free. Different group names travel independently.
+A group keeps going if a member quits. Use unique `--name` values so each
+pet also has its own command pipe. Groups support up to 32 pets in the same
+desktop session and runtime directory.
+
+Group coordination leaves a small private `pet-roam-UID-GROUP.state` file in
+`$XDG_RUNTIME_DIR` (or `/tmp`). It resets after three seconds without active
+members; keeping the file avoids splitting a group as pets join or leave.
 
 ## Sending it events
 
