@@ -46,6 +46,9 @@ pub const Window = struct {
     argb: bool,
     screen_w: i32,
     screen_h: i32,
+    origin_x: i32,
+    origin_y: i32,
+    monitors: backend.Monitors,
 
     pub fn init(w: u32, h: u32) Error!Window {
         const kind = chosen orelse blk: {
@@ -67,6 +70,9 @@ pub const Window = struct {
                 win.argb = inner.argb;
                 win.screen_w = inner.screen_w;
                 win.screen_h = inner.screen_h;
+                win.origin_x = inner.origin_x;
+                win.origin_y = inner.origin_y;
+                win.monitors = inner.monitors;
             },
         }
         return win;
@@ -140,6 +146,13 @@ pub const Window = struct {
         return ptr;
     }
 
+    pub fn useMonitor(self: *Window, m: backend.Monitor) void {
+        switch (self.impl) {
+            inline else => |*inner| inner.useMonitor(m),
+        }
+        self.syncScreen();
+    }
+
     pub fn pollEvent(self: *Window) ?Event {
         const ev = switch (self.impl) {
             inline else => |*inner| inner.pollEvent(),
@@ -153,6 +166,9 @@ pub const Window = struct {
             inline else => |*inner| {
                 self.screen_w = inner.screen_w;
                 self.screen_h = inner.screen_h;
+                self.origin_x = inner.origin_x;
+                self.origin_y = inner.origin_y;
+                self.monitors = inner.monitors;
             },
         }
     }

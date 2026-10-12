@@ -11,6 +11,8 @@ class Actor {
 }
 const layoutManager = {
     primaryMonitor: { x: 710, y: 1080, width: 1366, height: 768 },
+    monitors: [{ x: 0, y: 0, width: 1920, height: 1080 },
+        { x: 710, y: 1080, width: 1366, height: 768 }],
     addTopChrome() {},
 };
 const context = {
@@ -44,6 +46,10 @@ for (const version of ['garbage', 'NaN', 'Infinity', '2.5', '0']) {
 const current = window();
 current._handle('hello 64 64 2');
 assert.deepEqual(current.lines, ['capabilities input', 'screen 710 1080 1366 768']);
+const roaming = window();
+roaming._handle('hello 64 64 3');
+assert.deepEqual(roaming.lines, ['capabilities input', 'screen 710 1080 1366 768',
+    'monitors', 'monitor 0 0 1920 1080', 'monitor 710 1080 1366 768']);
 current._actor.visible = true;
 current._pixels = new Uint8Array(64 * 64 * 4);
 current._pixels[3] = 255;
@@ -59,8 +65,11 @@ current._lastPointer = [1, 0];
 current.tick(1, 0, 0);
 assert.equal(current._actor.reactive, false, 'transparent pixels must pass clicks through');
 layoutManager.primaryMonitor = { x: 0, y: 0, width: 800, height: 600 };
+layoutManager.monitors = [layoutManager.primaryMonitor];
 current.screenChanged();
 legacy.screenChanged();
+roaming.screenChanged();
+assert.deepEqual(roaming.lines.slice(-3), ['screen 0 0 800 600', 'monitors', 'monitor 0 0 800 600']);
 assert.equal(current.lines.at(-1), 'screen 0 0 800 600');
 assert.equal(legacy.lines.at(-1), 'screen 2076 1848');
-console.log('Extension regression checks passed (legacy/v2, monitor changes, click-through).');
+console.log('Extension regression checks passed (legacy/v2/v3, monitor lists, click-through).');

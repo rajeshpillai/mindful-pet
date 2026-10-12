@@ -114,7 +114,8 @@ pub const Pet = struct {
             .chr = chr,
         };
         p.y = p.floorY();
-        p.x = p.randRange(size, screen_w - 2 * size);
+        p.top = std.math.clamp(top, 0, p.floorY());
+        p.x = p.randRange(0, @max(0, screen_w - size));
         p.target_x = p.x;
         return p;
     }
@@ -140,6 +141,18 @@ pub const Pet = struct {
             self.y = self.top;
         }
         if (self.climb_next) self.target_x = if (self.wall == .left) 0 else @max(0, w - self.size);
+    }
+
+    /// Change monitor-local coordinates while preserving the desktop position
+    /// where possible. Positions outside the destination recover at its edge.
+    pub fn relocate(self: *Pet, dx: f32, dy: f32, w: f32, h: f32) void {
+        const headed_to_floor = self.target_y == self.floorY();
+        self.x += dx;
+        self.y += dy;
+        self.target_x += dx;
+        self.target_y += dy;
+        self.resize(w, h);
+        if (headed_to_floor) self.target_y = self.floorY();
     }
 
     pub fn onEvent(self: *Pet, ev: Event) void {
@@ -203,6 +216,10 @@ pub const Pet = struct {
     }
 
     pub fn update(self: *Pet, dt: f32, in: Input) void {
+        // Recover even when geometry did not change: a stale position or target
+        // must never strand the pet beyond a monitor edge.
+        self.recover();
+        defer self.recover();
         self.state_time += dt;
         self.anim_time += dt;
         self.idle_for += dt;
@@ -464,6 +481,13 @@ pub const Pet = struct {
         return std.math.clamp(x, 0, @max(0, self.screen_w - self.size));
     }
 
+    fn recover(self: *Pet) void {
+        self.x = self.clampX(self.x);
+        self.y = std.math.clamp(self.y, 0, self.floorY());
+        self.target_x = self.clampX(self.target_x);
+        self.target_y = std.math.clamp(self.target_y, 0, self.floorY());
+    }
+
     fn randRange(self: *const Pet, lo: f32, hi: f32) f32 {
         return lo + self.rand.float(f32) * (hi - lo);
     }
@@ -617,6 +641,43 @@ test "resize keeps floor and climbing pets on the monitor" {
     p.resize(32, 32);
     try std.testing.expectEqual(@as(f32, 0), p.x);
     try std.testing.expectEqual(@as(f32, 0), p.y);
+}
+
+test "off-screen pets and destinations recover in every state on the next frame" {
+    var prng = std.Random.DefaultPrng.init(7);
+    inline for (std.meta.tags(State)) |state| {
+        for ([_]f32{ -500, 3000 }) |outside| {
+            var p = Pet.init(prng.random(), &sprites.cat, 800, 600, 64, 32);
+            p.state = state;
+            p.x = outside;
+            p.y = outside;
+            p.target_x = outside;
+            p.target_y = outside;
+            p.update(1.0 / 30.0, still);
+            try std.testing.expect(p.x >= 0 and p.x <= 736);
+            try std.testing.expect(p.y >= 0 and p.y <= 536);
+            try std.testing.expect(p.target_x >= 0 and p.target_x <= 736);
+            try std.testing.expect(p.target_y >= 0 and p.target_y <= 536);
+        }
+    }
+}
+
+test "small monitors spawn safely and carrying across offset monitors stays visible" {
+    var prng = std.Random.DefaultPrng.init(7);
+    var tiny = Pet.init(prng.random(), &sprites.cat, 32, 32, 64, 1000);
+    tiny.update(0.033, still);
+    try std.testing.expectEqual(@as(f32, 0), tiny.x);
+    try std.testing.expectEqual(@as(f32, 0), tiny.y);
+    try std.testing.expectEqual(@as(f32, 0), tiny.top);
+    var p = Pet.init(prng.random(), &sprites.cat, 1366, 768, 64, 32);
+    p.update(0.033, .{ .pointer_x = 0, .pointer_y = 0, .pointer_moved = false, .drag = .{ .x = 100, .y = 200 } });
+    p.relocate(710, 1080, 1920, 1080);
+    try std.testing.expectEqual(State.held, p.state);
+    try std.testing.expectEqual(@as(f32, 810), p.x);
+    try std.testing.expectEqual(@as(f32, 1016), p.y);
+    p.update(0.033, .{ .pointer_x = 100, .pointer_y = 500, .pointer_moved = true, .drag = .{ .x = 80, .y = 480 } });
+    try std.testing.expectEqual(@as(f32, 80), p.x);
+    try std.testing.expectEqual(@as(f32, 480), p.y);
 }
 
 test "pointer resting on the cat makes it bat, once per cooldown" {

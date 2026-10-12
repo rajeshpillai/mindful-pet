@@ -73,6 +73,22 @@ History in short (`git log --oneline` has the rest):
   notes live in `issues/`; the backwards-walking report remains open. The
   final shipped binary passed all seven private-socket/FIFO regressions and
   both installed tools matched the release artifacts byte for byte.
+- 2026-10-12, monitor roaming: both backends now stay on the primary monitor
+  by default. X11 uses XRandR 1.5 monitor rectangles and the primary output,
+  listens for geometry events and polls once a second (Xvfb can omit events
+  for logical monitor changes). Protocol v3 (`hello W H 3`) reports the
+  actual monitor list; v2 and legacy peers retain their previous replies.
+  Every state recovers off-screen positions/targets each frame. `--roam`
+  follows the pointer and allows continued dragging across monitor origins,
+  and visits other monitors on its own every 30–60 seconds in quiet floor
+  states. Visits hop to the destination floor and start a walk; sleep, work,
+  reactions, climbing and carrying are uninterrupted. Gaps are never chosen,
+  and bubbles follow the pet's selected monitor. Unit tests pass for auto
+  (27), GNOME (27) and X11 (21); ten socket/FIFO regressions, two real Xvfb
+  checks and extension legacy/v2/v3 checks pass. Headless GNOME verified both
+  installed v2/new v3 clients and a real autonomous visit to the second
+  monitor with a clean shell log. Extension v0.1.4 requires a new login to
+  load. Notes: `issues/009-monitor-roaming.md`.
 
 ## Environment facts that shaped the design
 
@@ -151,15 +167,17 @@ Ordered as discussed on 2026-10-12, after the hand test above:
    surfaces in pet.zig.
 2. Quality of life: break the animation loops (stretch, yawn, tail flick),
    real sound recordings, a config file, then a systemd user service.
-3. Later: multi-monitor for the X11 backend and a `--monitor` flag (the
-   GNOME backend already keeps to the primary monitor), macOS/Windows
-   backends (TODO section 6).
+3. Later: a `--monitor` flag for a fixed non-primary choice, macOS/Windows
+   backends (TODO section 6). Primary confinement and `--roam` are done on
+   both existing backends.
 
 ## Code map
 
 ```
 src/main.zig     event loop, --scale/--help parsing, render(), input shape; resizes the pet on screen_changed, quits on disconnected
 src/pet.zig      Pet struct, State/Event enums, update(), frame(), resize() after monitor changes, chaseTarget()
+src/monitors.zig monitor rectangles/lookup excluding desktop gaps
+src/roaming.zig  autonomous monitor selection during quiet floor states
 src/sprites.zig  Frame/palette/Transform/source(), Character struct, `all` + byName()
 src/characters/  cat.zig, dog.zig, rabbit.zig; each exports `character`
 src/font.zig     3x5 font + drawBubble()
@@ -171,7 +189,7 @@ src/backend/gnome.zig  socket client: hello/img/move/show/hide/raise/input out, 
                        translates stage coordinates to the primary monitor, reports screen_changed/disconnected
 src/backend/auto.zig   default build; gnome.available() decides once, union(Kind) dispatch, mirrors screen_w/h on every poll
 gnome-extension/     extension.js: SocketService, PetWindow (Clutter.Image actor, alpha hit-test, 30 Hz pointer,
-                     protocol v2 negotiation, per-monitor `screen`, `input 0|1`); writer.js: non-blocking bounded line writer
+                     v3 monitor lists, legacy/v2 compatibility, `screen`, `input 0|1`); writer.js: non-blocking bounded line writer
 src/events.zig   Command union and parse(); the pipe itself is in channel/fifo.zig
 src/c.h          headers for the translate-c step
 scripts/petctl   pipe writer (python3, atomic non-blocking); `petctl run CMD` wraps a command

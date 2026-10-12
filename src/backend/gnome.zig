@@ -3,7 +3,7 @@
 //! $XDG_RUNTIME_DIR/mindful-pet-shell.sock. The shell sees the pointer over
 //! every window and keeps the actor above native Wayland windows, which an
 //! X11 client under XWayland cannot. Protocol in extension.js: this side
-//! speaks v2 (`hello W H 2`), keeps the pet on the primary monitor by
+//! speaks v3 (`hello W H 3`), keeps the pet on the primary monitor by
 //! translating the shell's stage coordinates, and falls back to the legacy
 //! whole-stage geometry when an older extension answers.
 
@@ -92,6 +92,7 @@ pub const Window = struct {
     /// smaller screen.
     origin_x: i32 = 0,
     origin_y: i32 = 0,
+    monitors: backend.Monitors = .{},
 
     pointer: PointerPos = .{ .x = 0, .y = 0 },
     /// Button held since the last `press`, so pointer updates become `motion`.
@@ -142,7 +143,7 @@ pub const Window = struct {
 
         var hello: [64]u8 = undefined;
         // Older extensions ignore the optional version and retain stage coordinates.
-        win.send(std.fmt.bufPrint(&hello, "hello {d} {d} 2\n", .{ w, h }) catch unreachable);
+        win.send(std.fmt.bufPrint(&hello, "hello {d} {d} 3\n", .{ w, h }) catch unreachable);
 
         // The extension answers with the screen size; give it a moment.
         var tries: u32 = 0;
@@ -218,6 +219,13 @@ pub const Window = struct {
     pub fn queryPointer(self: *Window) PointerPos {
         self.drain();
         return self.pointer;
+    }
+
+    pub fn useMonitor(self: *Window, m: backend.Monitor) void {
+        const dirty = self.screen_dirty;
+        self.setScreen(m.x, m.y, m.w, m.h);
+        // This is an intentional selection by main, already applied to the pet.
+        self.screen_dirty = dirty;
     }
 
     pub fn pollEvent(self: *Window) ?Event {
@@ -315,7 +323,11 @@ pub const Window = struct {
             if (count == nums.len) break;
             nums[count] = std.fmt.parseInt(i32, tok, 10) catch return;
         }
-        if (std.mem.eql(u8, cmd, "pointer") and count >= 2) {
+        if (std.mem.eql(u8, cmd, "monitors")) {
+            self.monitors = .{};
+        } else if (std.mem.eql(u8, cmd, "monitor") and count == 4) {
+            self.monitors.add(.{ .x = nums[0], .y = nums[1], .w = nums[2], .h = nums[3] });
+        } else if (std.mem.eql(u8, cmd, "pointer") and count >= 2) {
             const x = nums[0] - self.origin_x;
             const y = nums[1] - self.origin_y;
             self.pointer = .{ .x = x, .y = y };
@@ -327,9 +339,13 @@ pub const Window = struct {
             self.held = null;
             self.push(.{ .release = .{ .button = @intCast(nums[0]), .x_root = nums[1] - self.origin_x, .y_root = nums[2] - self.origin_y } });
         } else if (std.mem.eql(u8, cmd, "screen") and count >= 4) {
+            self.monitors = .{};
+            self.monitors.add(.{ .x = nums[0], .y = nums[1], .w = nums[2], .h = nums[3] });
             self.setScreen(nums[0], nums[1], nums[2], nums[3]);
         } else if (std.mem.eql(u8, cmd, "screen") and count >= 2) {
             // An older extension: the whole stage, origin 0,0.
+            self.monitors = .{};
+            self.monitors.add(.{ .x = 0, .y = 0, .w = nums[0], .h = nums[1] });
             self.setScreen(0, 0, nums[0], nums[1]);
         }
     }

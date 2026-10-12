@@ -34,6 +34,8 @@ pub const Window = impl.Window;
 pub const wait = impl.wait;
 
 pub const Error = error{ NoDisplay, NoImage, OutOfMemory };
+pub const Monitor = @import("monitors.zig").Monitor;
+pub const Monitors = @import("monitors.zig").Monitors;
 
 /// Pointer position in screen coordinates.
 pub const PointerPos = struct { x: i32, y: i32 };
@@ -73,6 +75,7 @@ comptime {
         "flush", // fn (*Window) void                             push queued requests
         "setInputShape", // fn (*Window, []const Rect) void        clicks outside fall through
         "queryPointer", // fn (*Window) PointerPos
+        "useMonitor", // fn (*Window, Monitor) void             select local coordinate space
         "pollEvent", // fn (*Window) ?Event                       null when the queue is empty
     };
     for (required_fns) |f| {
@@ -83,6 +86,8 @@ comptime {
         "w", "h", // u32
         "argb", // bool: alpha 0 is really see-through; false means paint an opaque bg
         "screen_w", "screen_h", // i32; may change while running, announced by Event.screen_changed
+        "origin_x", "origin_y", // i32; desktop origin of the selected monitor
+        "monitors", // Monitors; actual screens, excluding gaps
     };
     for (required_fields) |f| {
         if (!@hasField(Window, f)) @compileError("backend " ++ name ++ ": Window is missing field `" ++ f ++ "`");

@@ -15,6 +15,8 @@
 //                  move X Y             screen coordinates
 //                  show | hide | raise
 //                  input 0|1           click-through or alpha hit-testing (v2)
+//   shell -> pet   monitors            reset the monitor list (v3)
+//                  monitor X Y W H    one actual monitor rectangle (v3)
 //   shell -> pet   capabilities input  before screen, for v2 peers
 //   shell -> pet   screen X Y W H       the primary monitor's rectangle in stage
 //                                       coordinates; sent once on connect, and
@@ -229,7 +231,7 @@ class PetWindow {
         Main.layoutManager.addTopChrome(this._actor, { affectsInputRegion: false });
         if (this._protocol >= 2)
             this.send('capabilities input');
-        this.send(screenLine(this._protocol));
+        this.screenChanged();
         if (this._destroyed) return;
         this._owner._ensureTick();
         console.log(`${LOG} pet window ${w}x${h} connected (${this._owner._windows.size} open)`);
@@ -269,6 +271,13 @@ class PetWindow {
 
     screenChanged() {
         this.send(screenLine(this._protocol));
+        if (this._protocol >= 3 && !this._destroyed) {
+            this.send('monitors');
+            for (const m of Main.layoutManager.monitors) {
+                if (this._destroyed) break;
+                this.send(`monitor ${m.x} ${m.y} ${m.width} ${m.height}`);
+            }
+        }
     }
 }
 

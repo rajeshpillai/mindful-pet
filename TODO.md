@@ -42,8 +42,10 @@ agreed to tackle things; it is not a promise.
   - [x] GNOME backend: the extension reports the primary monitor's
         rectangle and `gnome.zig` translates, so the pet stays on it
         (including live size/origin changes; legacy clients remain compatible)
-  - [ ] X11 backend: pick the primary output via XRandR instead of the
+  - [x] X11 backend: pick the primary output via XRandR instead of the
         whole XWayland screen
+  - [x] Recover off-screen positions each frame; `--roam` visits other
+        monitors, follows the pointer and allows dragging between them
   - [ ] `--monitor` flag to choose another one
 
 ## 5. See the windows (the Wayland gap)

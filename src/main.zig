@@ -6,6 +6,7 @@ const sprites = @import("sprites.zig");
 const channel = @import("channel.zig");
 const audio_mod = @import("audio.zig");
 const font = @import("font.zig");
+const roaming_mod = @import("roaming.zig");
 
 const default_scale: u32 = 4;
 const max_scale: u32 = 12;
@@ -19,12 +20,13 @@ var size: u32 = sprites.W * default_scale;
 /// Pixels reserved at the top of the screen (GNOME's bar) that the cat hangs below.
 var top: u32 = default_top;
 var mute: bool = false;
+var roam: bool = false;
 var character: *const sprites.Character = &sprites.cat;
 /// Instance name: selects pet-NAME.fifo so several pets can run at once.
 var instance: ?[]const u8 = null;
 
 const usage =
-    \\usage: pet [--pet cat|dog|rabbit] [--name NAME] [--scale N] [--top N] [--mute] [--help]
+    \\usage: pet [--pet cat|dog|rabbit] [--name NAME] [--scale N] [--top N] [--roam] [--mute] [--help]
     \\
     \\A small animal that lives on the edges of your screen.
     \\
@@ -33,6 +35,8 @@ const usage =
     \\              run several at once and address each with petctl -n NAME
     \\  --scale N   pixel zoom of the 16x16 art, 1..12 (default 4 = 64px)
     \\  --top N     pixels reserved for the top panel; the cat hangs below it (default 32)
+    \\  --roam      visit other monitors, follow the pointer and drag between them
+    \\              (default: stay on the primary monitor)
     \\  --mute      no sounds
     \\  -h, --help  show this help
     \\
@@ -77,10 +81,12 @@ pub fn main(init: std.process.Init) !void {
     );
 
     var audio = audio_mod.Audio.init(!mute);
+    var roaming = roaming_mod.Roaming.init(prng.random());
 
     std.debug.print("pet: a {s}{s}{s}\n", .{ character.name, if (instance != null) " named " else "", instance orelse "" });
 
     std.debug.print("pet: {d}x{d} screen, {s} window ({s} backend)\n", .{ win.screen_w, win.screen_h, if (win.argb) "transparent" else "opaque (no ARGB visual)", win.backendName() });
+    if (roam) std.debug.print("pet: roaming between monitors\n", .{});
     if (commands) |ch| std.debug.print("pet: commands via  echo fail > {s}\n", .{ch.path()});
     std.debug.print("pet: left-click = meow, drag = carry, right-click = quit\n", .{});
 
@@ -140,10 +146,36 @@ pub fn main(init: std.process.Init) !void {
             if (ev == .disconnected) return;
         }
 
-        const ptr = win.queryPointer();
+        var ptr = win.queryPointer();
         input.pointer_x = @floatFromInt(ptr.x);
         input.pointer_y = @floatFromInt(ptr.y);
         input.pointer_moved = ptr.x != last_ptr.x or ptr.y != last_ptr.y;
+        if (roam and (input.pointer_moved or input.drag != null)) {
+            if (win.monitors.at(ptr.x + win.origin_x, ptr.y + win.origin_y)) |m| {
+                if (m.x != win.origin_x or m.y != win.origin_y or m.w != win.screen_w or m.h != win.screen_h) {
+                    const dx = win.origin_x - m.x;
+                    const dy = win.origin_y - m.y;
+                    pet.relocate(@floatFromInt(dx), @floatFromInt(dy), @floatFromInt(m.w), @floatFromInt(m.h));
+                    win.useMonitor(m);
+                    roaming.reset(prng.random());
+                    if (drag) |*d| {
+                        d.px += dx;
+                        d.py += dy;
+                    }
+                    if (input.drag) |*d| {
+                        d.x += @floatFromInt(dx);
+                        d.y += @floatFromInt(dy);
+                    }
+                    ptr.x += dx;
+                    ptr.y += dy;
+                    input.pointer_x = @floatFromInt(ptr.x);
+                    input.pointer_y = @floatFromInt(ptr.y);
+                    if (debug_events) std.debug.print("pet: monitor {d},{d} {d}x{d}\n", .{ m.x, m.y, m.w, m.h });
+                }
+            }
+        }
+        // Both windows use the same monitor-local coordinates, even while roaming.
+        bubble_win.useMonitor(.{ .x = win.origin_x, .y = win.origin_y, .w = win.screen_w, .h = win.screen_h });
         last_ptr = ptr;
 
         if (commands) |*ch| while (ch.pollCommand()) |cmd| switch (cmd) {
@@ -157,6 +189,19 @@ pub fn main(init: std.process.Init) !void {
         const dt: f32 = @floatCast(@min((now - last_ms) / 1000.0, 0.1));
         last_ms = now;
         pet.update(dt, input);
+        if (roam and drag == null and input.drag == null and !input.drop and !input.clicked) {
+            const current: backend.Monitor = .{ .x = win.origin_x, .y = win.origin_y, .w = win.screen_w, .h = win.screen_h };
+            if (roaming.tick(dt, &win.monitors, current, &pet)) |m| {
+                pet.relocate(@floatFromInt(current.x - m.x), @floatFromInt(current.y - m.y), @floatFromInt(m.w), @floatFromInt(m.h));
+                win.useMonitor(m);
+                bubble_win.useMonitor(m);
+                // A visit starts a walk on the destination's floor. Offset or
+                // disconnected screens require a hop rather than crossing a gap.
+                pet.goTo(pet.size / 2 + prng.random().float(f32) * @max(0, pet.screen_w - pet.size));
+                last_ptr = win.queryPointer();
+                if (debug_events) std.debug.print("pet: visiting monitor {d},{d} {d}x{d}\n", .{ m.x, m.y, m.w, m.h });
+            }
+        }
 
         if (pet.takeSound()) |snd| {
             const clip = switch (snd) {
@@ -238,6 +283,8 @@ fn parseArgs(args: std.process.Args) void {
             top = std.fmt.parseInt(u32, value, 10) catch fail("--top needs a number");
         } else if (std.mem.eql(u8, arg, "--mute")) {
             mute = true;
+        } else if (std.mem.eql(u8, arg, "--roam")) {
+            roam = true;
         } else if (std.mem.eql(u8, arg, "--pet")) {
             const value = it.next() orelse fail("--pet needs cat, dog or rabbit");
             character = sprites.byName(value) orelse fail("--pet needs cat, dog or rabbit");

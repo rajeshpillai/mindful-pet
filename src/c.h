@@ -7,6 +7,7 @@
 #include <X11/Xatom.h>
 #include <X11/extensions/shape.h>
 #include <X11/extensions/Xfixes.h>
+#include <X11/extensions/Xrandr.h>
 #include <poll.h>
 #include <fcntl.h>
 #include <unistd.h>

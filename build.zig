@@ -37,6 +37,7 @@ pub fn build(b: *std.Build) void {
             exe.root_module.linkSystemLibrary("X11", .{});
             exe.root_module.linkSystemLibrary("Xfixes", .{});
             exe.root_module.linkSystemLibrary("Xext", .{});
+            exe.root_module.linkSystemLibrary("Xrandr", .{});
         },
         .gnome => {},
     }

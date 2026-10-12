@@ -58,7 +58,8 @@ class FakeShell:
                         if self.legacy:
                             conn.sendall(b"screen 1280 800\n")
                         else:
-                            conn.sendall(b"capabilities input\nscreen 710 1080 1366 768\n")
+                            conn.sendall(b"capabilities input\nscreen 710 1080 1366 768\n"
+                                         b"monitors\nmonitor 0 0 1920 1080\nmonitor 710 1080 1366 768\n")
                     elif raw.startswith(b"move "):
                         window["moves"].append(tuple(map(int, raw.split()[1:])))
                     elif not raw.startswith(b"img "):
@@ -81,14 +82,17 @@ class FakeShell:
 
 
 class Integration(unittest.TestCase):
-    def start(self, legacy=False, scale=4):
+    def start(self, legacy=False, scale=4, roam=False):
         temp = tempfile.TemporaryDirectory(prefix="mp-regression-")
         self.addCleanup(temp.cleanup)
         runtime = Path(temp.name)
         shell = FakeShell(runtime, legacy)
         self.addCleanup(shell.close)
         env = {**os.environ, "XDG_RUNTIME_DIR": str(runtime)}
-        pet = subprocess.Popen([str(BINARY), "--mute", "--name", "regression", "--scale", str(scale)], env=env,
+        args = [str(BINARY), "--mute", "--name", "regression", "--scale", str(scale)]
+        if roam:
+            args.append("--roam")
+        pet = subprocess.Popen(args, env=env,
                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         def cleanup():
             if pet.poll() is None:
@@ -117,6 +121,56 @@ class Integration(unittest.TestCase):
             window["conn"].sendall(b"screen 0 0 800 600\n")
         wait_for(lambda: primary["moves"][-1][1] == 536)
         self.assertLessEqual(primary["moves"][-1][0], 736)
+        self.command(fifo, "quit")
+        self.assertEqual(pet.wait(timeout=1), 0)
+
+    def test_default_stays_primary_even_when_dragged_to_another_screen(self):
+        shell, pet, fifo = self.start()
+        primary = next(w for w in shell.windows if w["primary"])
+        self.command(fifo, "work")
+        wait_for(lambda: bool(primary["moves"]))
+        x, y = primary["moves"][-1]
+        primary["conn"].sendall(f"press 1 {x+20} {y+20} 20 20\npointer 100 500\n".encode())
+        wait_for(lambda: primary["moves"][-1] == (710, 1080))
+        primary["conn"].sendall(b"release 1 100 500\n")
+        self.command(fifo, "quit")
+        self.assertEqual(pet.wait(timeout=1), 0)
+
+    def test_roam_follows_pointer_and_bubble_without_entering_gaps(self):
+        shell, pet, fifo = self.start(roam=True)
+        primary = next(w for w in shell.windows if w["primary"])
+        bubble = next(w for w in shell.windows if not w["primary"])
+        self.command(fifo, "work")
+        self.command(fifo, "say roaming")
+        wait_for(lambda: bool(primary["moves"]))
+        primary["conn"].sendall(b"pointer 100 500\n")
+        wait_for(lambda: primary["moves"][-1][1] == 1016)
+        wait_for(lambda: bool(bubble["moves"]) and bubble["moves"][-1][1] < 1080)
+        self.assertTrue(0 <= primary["moves"][-1][0] <= 1856)
+        before = primary["moves"][-1]
+        primary["conn"].sendall(b"pointer 100 1800\n")  # a gap below the top screen
+        time.sleep(0.1)
+        self.assertEqual(primary["moves"][-1], before)
+        primary["conn"].sendall(b"pointer 1000 1800\n")
+        wait_for(lambda: primary["moves"][-1][1] == 1784)
+        self.assertTrue(710 <= primary["moves"][-1][0] <= 2012)
+        self.command(fifo, "quit")
+        self.assertEqual(pet.wait(timeout=1), 0)
+
+    def test_roam_drag_continues_across_monitor_origins(self):
+        shell, pet, fifo = self.start(roam=True)
+        primary = next(w for w in shell.windows if w["primary"])
+        self.command(fifo, "work")
+        wait_for(lambda: bool(primary["moves"]))
+        x, y = primary["moves"][-1]
+        primary["conn"].sendall(f"press 1 {x+20} {y+20} 20 20\npointer 100 500\n".encode())
+        wait_for(lambda: primary["moves"][-1] == (80, 480))
+        primary["conn"].sendall(b"pointer 120 550\n")
+        wait_for(lambda: primary["moves"][-1] == (100, 530))
+        primary["conn"].sendall(b"pointer 1000 1300\n")
+        wait_for(lambda: primary["moves"][-1] == (980, 1280))
+        primary["conn"].sendall(b"release 1 1000 1300\n")
+        wait_for(lambda: primary["moves"][-1][1] == 1784)
         self.command(fifo, "quit")
         self.assertEqual(pet.wait(timeout=1), 0)
 

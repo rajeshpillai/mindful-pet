@@ -9,6 +9,7 @@ Findings from the 2026-10-12 project review, with their fixes and verification:
 - [Chase edge pileup](005-chase-edge-pileup.md)
 - [Blocking petctl writes](006-blocking-petctl-writes.md)
 - [Automated review follow-ups](008-review-hardening.md)
+- [Off-screen recovery and optional roaming](009-monitor-roaming.md)
 
 Unresolved observation from the real-session handoff:
 

@@ -42,6 +42,8 @@ Toolchain: Zig master (0.17.0-dev). `@cImport` is gone; C headers go through
 ```
 src/main.zig        event loop, flags, rendering, bubble window
 src/pet.zig         state machine; knows nothing about X11 or audio
+src/monitors.zig    shared desktop-space monitor rectangles (gaps excluded)
+src/roaming.zig     optional autonomous monitor visits, waiting for quiet floor states
 src/sprites.zig     Frame format, palette, orientation mapping, Character struct, `all`
 src/characters/     cat.zig, dog.zig, rabbit.zig (16x16 ASCII art, facing right)
 src/backend.zig     window backend interface: shared types, comptime selection, contract check
@@ -116,8 +118,11 @@ tools/test_extension.mjs   extension protocol and hit-testing checks with a stub
   The comptime block in backend.zig tells you what is missing. `screen_w`
   and `screen_h` may change while running: a backend that learns of monitor
   changes updates them and reports `screen_changed`; one whose connection
-  can go away reports `disconnected` once. Neither is required (x11 sends
-  neither). Keep every socket operation on the compositor side non-blocking.
+  can go away reports `disconnected` once. X11 listens for XRandR geometry
+  changes and also checks once a second. Each backend exposes `monitors`,
+  `origin_x/y` and `useMonitor`: input and move coordinates remain relative
+  to the selected real monitor. Keep every socket operation on the compositor
+  side non-blocking.
   The command channel (`src/channel.zig`) and audio (`src/audio.zig`) follow
   the same pattern but select on `builtin.os.tag`; a Windows port adds
   `channel/win_pipe.zig` and `audio/win.zig` and two switch arms.

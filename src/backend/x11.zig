@@ -55,6 +55,12 @@ pub const Window = struct {
     argb: bool,
     screen_w: i32,
     screen_h: i32,
+    origin_x: i32 = 0,
+    origin_y: i32 = 0,
+    monitors: backend.Monitors = .{},
+    randr_event: ?c_int = null,
+    primary: ?backend.Monitor = null,
+    last_monitor_check: i64 = 0,
 
     pub fn init(w: u32, h: u32) Error!Window {
         const dpy = c.XOpenDisplay(null) orelse return error.NoDisplay;
@@ -87,7 +93,7 @@ pub const Window = struct {
 
         const gc = c.XCreateGC(dpy, win, 0, null);
 
-        return .{
+        var result: Window = .{
             .dpy = dpy,
             .screen = screen,
             .root = root,
@@ -101,6 +107,67 @@ pub const Window = struct {
             .screen_w = c.XDisplayWidth(dpy, screen),
             .screen_h = c.XDisplayHeight(dpy, screen),
         };
+        var event_base: c_int = 0;
+        var error_base: c_int = 0;
+        var major: c_int = 0;
+        var minor: c_int = 0;
+        if (c.XRRQueryExtension(dpy, &event_base, &error_base) != 0 and
+            c.XRRQueryVersion(dpy, &major, &minor) != 0 and
+            (major > 1 or (major == 1 and minor >= 5)))
+        {
+            result.randr_event = event_base;
+            c.XRRSelectInput(dpy, root, c.RRScreenChangeNotifyMask | c.RRCrtcChangeNotifyMask |
+                c.RROutputChangeNotifyMask | c.RROutputPropertyNotifyMask | c.RRResourceChangeNotifyMask);
+        }
+        _ = result.refreshMonitors();
+        return result;
+    }
+
+    fn refreshMonitors(self: *Window) bool {
+        const previous = self.monitors;
+        self.monitors = .{};
+        var primary: ?backend.Monitor = null;
+        if (self.randr_event != null) {
+            var count: c_int = 0;
+            const info = c.XRRGetMonitors(self.dpy, self.root, 1, &count);
+            if (info != null) {
+                defer c.XRRFreeMonitors(info);
+                const primary_output = c.XRRGetOutputPrimary(self.dpy, self.root);
+                for (0..@intCast(@max(0, count))) |i| {
+                    const m: backend.Monitor = .{ .x = info[i].x, .y = info[i].y, .w = info[i].width, .h = info[i].height };
+                    if (m.w <= 0 or m.h <= 0) continue;
+                    self.monitors.add(m);
+                    if (info[i].primary != 0) primary = m;
+                    if (primary == null and primary_output != 0) {
+                        for (0..@intCast(@max(0, info[i].noutput))) |j| {
+                            if (info[i].outputs[j] == primary_output) primary = m;
+                        }
+                    }
+                }
+            }
+        }
+        if (self.monitors.len == 0) self.monitors.add(.{
+            .x = 0,
+            .y = 0,
+            .w = c.XDisplayWidth(self.dpy, self.screen),
+            .h = c.XDisplayHeight(self.dpy, self.screen),
+        });
+        if (self.monitors.len == 0) return false;
+        const chosen = primary orelse self.monitors.items[0];
+        var changed = !std.meta.eql(self.primary, @as(?backend.Monitor, chosen)) or previous.len != self.monitors.len;
+        if (!changed) for (previous.items[0..previous.len], self.monitors.items[0..self.monitors.len]) |old, new| {
+            if (!std.meta.eql(old, new)) changed = true;
+        };
+        self.primary = chosen;
+        if (changed) self.useMonitor(chosen);
+        return changed;
+    }
+
+    pub fn useMonitor(self: *Window, m: backend.Monitor) void {
+        self.origin_x = m.x;
+        self.origin_y = m.y;
+        self.screen_w = m.w;
+        self.screen_h = m.h;
     }
 
     pub fn deinit(self: *Window) void {
@@ -130,7 +197,7 @@ pub const Window = struct {
     }
 
     pub fn move(self: *Window, x: i32, y: i32) void {
-        _ = c.XMoveWindow(self.dpy, self.win, x, y);
+        _ = c.XMoveWindow(self.dpy, self.win, x + self.origin_x, y + self.origin_y);
     }
 
     pub fn raise(self: *Window) void {
@@ -165,30 +232,45 @@ pub const Window = struct {
         var wy: c_int = 0;
         var mask: c_uint = 0;
         _ = c.XQueryPointer(self.dpy, self.root, &root_ret, &child, &rx, &ry, &wx, &wy, &mask);
-        return .{ .x = rx, .y = ry };
+        return .{ .x = rx - self.origin_x, .y = ry - self.origin_y };
     }
 
     /// Drain one event we care about; null when the queue holds nothing useful.
     pub fn pollEvent(self: *Window) ?Event {
+        // Some X servers do not notify clients about logical monitor edits.
+        // Check once a second too, without undoing an unchanged roaming selection.
+        var ts: c.struct_timespec = undefined;
+        _ = c.clock_gettime(c.CLOCK_MONOTONIC, &ts);
+        if (ts.tv_sec != self.last_monitor_check) {
+            self.last_monitor_check = ts.tv_sec;
+            if (self.refreshMonitors()) return .screen_changed;
+        }
         while (c.XPending(self.dpy) > 0) {
             var ev: c.XEvent = undefined;
             _ = c.XNextEvent(self.dpy, &ev);
+            if (self.randr_event) |base| {
+                if (ev.type == base + c.RRScreenChangeNotify or ev.type == base + c.RRNotify) {
+                    _ = c.XRRUpdateConfiguration(&ev);
+                    if (self.refreshMonitors()) return .screen_changed;
+                    continue;
+                }
+            }
             switch (ev.type) {
                 c.ButtonPress => return .{ .press = .{
                     .button = ev.xbutton.button,
-                    .x_root = ev.xbutton.x_root,
-                    .y_root = ev.xbutton.y_root,
+                    .x_root = ev.xbutton.x_root - self.origin_x,
+                    .y_root = ev.xbutton.y_root - self.origin_y,
                     .x = ev.xbutton.x,
                     .y = ev.xbutton.y,
                 } },
                 c.ButtonRelease => return .{ .release = .{
                     .button = ev.xbutton.button,
-                    .x_root = ev.xbutton.x_root,
-                    .y_root = ev.xbutton.y_root,
+                    .x_root = ev.xbutton.x_root - self.origin_x,
+                    .y_root = ev.xbutton.y_root - self.origin_y,
                 } },
                 c.MotionNotify => return .{ .motion = .{
-                    .x_root = ev.xmotion.x_root,
-                    .y_root = ev.xmotion.y_root,
+                    .x_root = ev.xmotion.x_root - self.origin_x,
+                    .y_root = ev.xmotion.y_root - self.origin_y,
                 } },
                 c.Expose => return .expose,
                 else => {},

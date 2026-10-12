@@ -11,9 +11,10 @@ available and otherwise talks to X11 through XWayland. See [Limitations](#limita
 ## Requirements
 
 - Zig master (built against `0.17.0-dev.2056`, see `build.zig.zon`)
-- X11 development headers and libraries: `libx11-dev`, `libxfixes-dev`, `libxext-dev`
-  (Debian/Ubuntu names; the runtime needs `libX11`, `libXfixes`, `libXext`).
-  Not needed for the GNOME backend below.
+- X11 development headers and libraries: `libx11-dev`, `libxfixes-dev`, `libxext-dev`,
+  `libxrandr-dev` (Debian/Ubuntu names). All builds translate the shared C header;
+  the X11/auto runtime links `libX11`, `libXfixes`, `libXext`, `libXrandr`.
+  The GNOME-only runtime does not link these libraries.
 - An X server or XWayland with a 32-bit ARGB visual (any compositing desktop)
 - For sound, one of `pw-play`, `paplay`, `aplay` or `ffplay` on PATH (optional)
 - Python 3 for `scripts/petctl` (non-blocking command writes)
@@ -29,18 +30,21 @@ zig build test       # unit tests for the state machine and command parser
 zig build sheet      # dump every animation frame to zig-out/sheet.ppm
 python3 tools/test_integration.py  # private sockets/FIFOs; no real desktop is touched
 node tools/test_extension.mjs     # extension protocol and click-through checks (Node.js)
+python3 tools/test_x11.py         # primary/roaming/resize checks (Xvfb, xrandr, xdotool)
 ```
 
 ## Command line
 
 ```
-pet [--pet cat|dog|rabbit] [--name NAME] [--scale N] [--top N] [--mute] [--help]
+pet [--pet cat|dog|rabbit] [--name NAME] [--scale N] [--top N] [--roam] [--mute] [--help]
 
   --pet KIND  which animal: cat (default), dog or rabbit
   --name NAME run as a named instance listening on pet-NAME.fifo, so you can
               run several at once and address each with petctl -n NAME
   --scale N   pixel zoom of the 16x16 art, 1..12 (default 4 = 64px)
   --top N     pixels reserved for the top panel; the cat hangs below it (default 32)
+  --roam      visit other monitors, follow the pointer and drag between them
+              (default: stay on the primary monitor)
   --mute      no sounds
   -h, --help  show this help
 ```
@@ -64,6 +68,15 @@ Mouse:
 
 Clicks only land on the cat's opaque pixels. The transparent part of its
 window passes clicks through to whatever is underneath.
+
+Pets stay on the primary monitor by default. Pass `--roam` to follow the
+pointer between monitors, carry a pet across them, and let it visit another
+monitor on its own every 30–60 seconds while idle, sitting or walking.
+Visits wait for sleep, work, reactions, climbing and dragging to finish.
+The pet hops to the destination monitor's floor and starts a walk; it never
+walks through empty gaps in an offset or stacked layout. A speech bubble
+travels with it. Off-screen positions recover at the nearest edge of the
+current monitor on the next frame, including after a monitor is removed.
 
 On its own it idles, walks to random spots, sits, blinks, and now and then
 heads for a screen edge, climbs it, pauses, and either climbs back down or
@@ -214,9 +227,9 @@ The default build is the `auto` backend: it uses the extension when it is
 running and falls back to X11 otherwise, and the startup log says which. Force
 one with `zig build -Dbackend=x11` or `-Dbackend=gnome`. GNOME 46 to 48.
 
-With several monitors the pet lives on the primary one (the one with the top
-bar). The X11 backend does not know about monitors yet and treats the whole
-desktop as one screen.
+Both backends use the primary monitor by default. X11 reads XRandR monitor
+rectangles and the primary output; GNOME reports its primary monitor and,
+with protocol v3, the connected monitor rectangles used by `--roam`.
 
 The pet handles changes to the primary monitor's size and position while
 running. New clients negotiate monitor coordinates and click-through bubbles;
@@ -238,8 +251,9 @@ the pet exits cleanly.
   for a wlr-layer-shell backend.
 - The top edge is the screen's, not your editor's. Climbing an application
   window needs window geometry, which is the same Wayland gap as above.
-- The GNOME backend stays on the primary monitor. The X11 backend uses the
-  whole root-window size; monitor selection is still on the roadmap.
+- `--roam` needs the current GNOME extension, or XRandR 1.5+ on X11.
+  An older extension supplies only its original screen geometry, and an
+  X server without monitor information falls back to its root-window size.
 - **Linux only** for now. Windowing is X11 or the GNOME Shell extension,
   commands arrive on a POSIX named pipe, and sounds go through
   pw-play/paplay/aplay/ffplay. Any X11 desktop with a compositor works, and
