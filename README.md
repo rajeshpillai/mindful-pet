@@ -162,9 +162,10 @@ src/main.zig     event loop, argument parsing, rendering into the window buffer
 src/pet.zig      the state machine (idle, walk, run, sit, sleep, alert, happy, angry, work, bat, climb, cling, hang, held, fall)
 src/sprites.zig  frame format, palette, orientation mapping, Character struct
 src/characters/  cat.zig, dog.zig, rabbit.zig: 16x16 ASCII frames per animal
-src/backend.zig  window backend interface and selection (`zig build -Dbackend=x11`)
+src/backend.zig  window backend interface and selection (`zig build -Dbackend=auto|x11|gnome`)
 src/backend/     x11.zig: override-redirect window, XImage blit, XFixes input shape;
-                 gnome.zig: Unix-socket client of the GNOME Shell extension
+                 gnome.zig: Unix-socket client of the GNOME Shell extension;
+                 auto.zig: gnome if the extension answers, else x11 (the default)
 gnome-extension/ the GNOME Shell extension (one Clutter actor per pet window)
 scripts/install-extension  copies it into place and enables it
 src/events.zig   command vocabulary and parser
@@ -187,21 +188,22 @@ sound clip names from `src/assets/` (or null for silence).
 
 ## GNOME Shell backend
 
-By default the pet is an X11 client. Under GNOME on Wayland that means it runs
-in XWayland and goes blind whenever the pointer is over a native window. The
-`gnome` backend fixes that: the pet becomes a Clutter actor drawn by a small
-GNOME Shell extension, which sees the pointer everywhere and keeps the pet
-above native windows. The Zig program is unchanged apart from the window layer;
-it talks to the extension over a Unix socket.
+Without help the pet is an X11 client. Under GNOME on Wayland that means it
+runs in XWayland and goes blind whenever the pointer is over a native window.
+The `gnome` backend fixes that: the pet becomes a Clutter actor drawn by a
+small GNOME Shell extension, which sees the pointer everywhere and keeps the
+pet above native windows. The Zig program is unchanged apart from the window
+layer; it talks to the extension over a Unix socket.
 
 ```sh
 scripts/install-extension          # copies gnome-extension/ into ~/.local/share/gnome-shell/extensions
 # log out and back in once, so GNOME Shell loads the new extension
-zig build -Dbackend=gnome && zig-out/bin/pet
+zig build && zig-out/bin/pet       # the default `auto` backend now finds it
 ```
 
-`scripts/ship` installs this build as `pet-gnome` next to the X11 `pet`. If the
-extension is not running, the pet says so and exits. GNOME 46 to 48.
+The default build is the `auto` backend: it uses the extension when it is
+running and falls back to X11 otherwise, and the startup log says which. Force
+one with `zig build -Dbackend=x11` or `-Dbackend=gnome`. GNOME 46 to 48.
 
 ## Limitations
 

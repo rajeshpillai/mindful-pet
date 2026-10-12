@@ -1,11 +1,12 @@
 //! Window backend selection. Everything outside this file and `src/backend/`
 //! talks to `Window`, `wait` and the shared types below; only a backend knows
-//! how its compositor works. Backends: `x11` (Xlib, also used under XWayland)
-//! and `gnome` (a Clutter actor drawn by the GNOME Shell extension in
-//! gnome-extension/, over a Unix socket). Planned: AppKit on macOS, Win32
-//! layered windows on Windows.
+//! how its compositor works. Backends: `x11` (Xlib, also used under XWayland),
+//! `gnome` (a Clutter actor drawn by the GNOME Shell extension in
+//! gnome-extension/, over a Unix socket) and `auto` (gnome when the extension
+//! is running, else x11; the default). Planned: AppKit on macOS, Win32 layered
+//! windows on Windows.
 //!
-//! Pick one with `zig build -Dbackend=gnome`; the default is x11.
+//! Pick one with `zig build -Dbackend=x11|gnome|auto`.
 
 const std = @import("std");
 const options = @import("build_options");
@@ -16,9 +17,11 @@ pub const kind: Kind = options.backend;
 const impl = switch (kind) {
     .x11 => @import("backend/x11.zig"),
     .gnome => @import("backend/gnome.zig"),
+    .auto => @import("backend/auto.zig"),
 };
 
-/// Human-readable backend name for the startup log.
+/// Name of the compiled-in backend. `Window.backendName()` tells which one a
+/// window actually uses, which differs under `auto`.
 pub const name: []const u8 = impl.name;
 
 /// A transparent, always-on-top, frameless window the size of the sprite,
@@ -56,6 +59,8 @@ comptime {
     const required_fns = [_][]const u8{
         "init", // fn (w: u32, h: u32) Error!Window
         "deinit", // fn (*Window) void
+        "backendName", // fn (*const Window) []const u8          "x11", "gnome", ... for the log
+        "fd", // fn (*const Window) c_int                        descriptor to sleep on
         "show", // fn (*Window) void
         "hide", // fn (*Window) void
         "move", // fn (*Window, x: i32, y: i32) void             screen coordinates

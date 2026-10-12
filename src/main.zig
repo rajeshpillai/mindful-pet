@@ -80,7 +80,7 @@ pub fn main(init: std.process.Init) !void {
 
     std.debug.print("pet: a {s}{s}{s}\n", .{ character.name, if (instance != null) " named " else "", instance orelse "" });
 
-    std.debug.print("pet: {d}x{d} screen, {s} window ({s} backend)\n", .{ win.screen_w, win.screen_h, if (win.argb) "transparent" else "opaque (no ARGB visual)", backend.name });
+    std.debug.print("pet: {d}x{d} screen, {s} window ({s} backend)\n", .{ win.screen_w, win.screen_h, if (win.argb) "transparent" else "opaque (no ARGB visual)", win.backendName() });
     if (commands) |ch| std.debug.print("pet: commands via  echo fail > {s}\n", .{ch.path()});
     std.debug.print("pet: left-click = meow, drag = carry, right-click = quit\n", .{});
 

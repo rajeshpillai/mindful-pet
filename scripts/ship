@@ -10,11 +10,10 @@ dest="${1:-$HOME/Desktop/tools}"
 
 cd "$root"
 mkdir -p "$dest"
-# The GNOME backend first: it needs the shell extension, so it ships under its
-# own name and `pet` stays the X11 build that works everywhere.
-zig build -Doptimize=ReleaseSafe -Dbackend=gnome
-install -m 755 zig-out/bin/pet "$dest/pet-gnome"
+# The default build is the `auto` backend: GNOME Shell extension when it is
+# running, X11 otherwise. One binary covers both.
 zig build -Doptimize=ReleaseSafe
 install -m 755 zig-out/bin/pet "$dest/pet"
 install -m 755 scripts/petctl "$dest/petctl"
-echo "shipped $(git rev-parse --short HEAD 2>/dev/null || echo untracked) -> $dest/pet ($(du -h "$dest/pet" | cut -f1)), $dest/pet-gnome and $dest/petctl"
+rm -f "$dest/pet-gnome" # from before the auto backend existed
+echo "shipped $(git rev-parse --short HEAD 2>/dev/null || echo untracked) -> $dest/pet ($(du -h "$dest/pet" | cut -f1)) and $dest/petctl"

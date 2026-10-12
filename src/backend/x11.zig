@@ -111,6 +111,11 @@ pub const Window = struct {
         _ = c.XCloseDisplay(self.dpy);
     }
 
+    pub fn backendName(self: *const Window) []const u8 {
+        _ = self;
+        return name;
+    }
+
     /// The connection's descriptor, for `wait`.
     pub fn fd(self: *const Window) c_int {
         return c.XConnectionNumber(self.dpy);

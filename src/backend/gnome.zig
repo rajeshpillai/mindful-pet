@@ -16,13 +16,46 @@ const PointerPos = backend.PointerPos;
 const Rect = backend.Rect;
 const Event = backend.Event;
 
+/// Path of the extension's socket, into `buf`.
+fn socketPath(buf: *[256:0]u8) ?[:0]u8 {
+    const dir: []const u8 = if (c.getenv("XDG_RUNTIME_DIR")) |d| std.mem.span(d) else "/tmp";
+    return std.mem.printSentinel(buf, "{s}/{s}", .{ dir, socket_name }, 0) catch null;
+}
+
+fn connectSocket() ?c_int {
+    var buf: [256:0]u8 = undefined;
+    const path = socketPath(&buf) orelse return null;
+    const fd = c.socket(c.AF_UNIX, c.SOCK_STREAM, 0);
+    if (fd < 0) return null;
+    var addr: c.struct_sockaddr_un = std.mem.zeroes(c.struct_sockaddr_un);
+    addr.sun_family = c.AF_UNIX;
+    if (path.len >= addr.sun_path.len) {
+        _ = c.close(fd);
+        return null;
+    }
+    @memcpy(addr.sun_path[0..path.len], path);
+    if (c.connect(fd, @ptrCast(&addr), @sizeOf(c.struct_sockaddr_un)) != 0) {
+        _ = c.close(fd);
+        return null;
+    }
+    return fd;
+}
+
+/// True when the extension is running and accepting connections. Used by the
+/// `auto` backend to decide; costs one connect.
+pub fn available() bool {
+    const fd = connectSocket() orelse return false;
+    _ = c.close(fd);
+    return true;
+}
+
 /// Sleep until a socket or the extra descriptor has data, or the timeout passes.
 pub fn wait(windows: []const *const Window, extra_fd: ?c_int, timeout_ms: i32) void {
     var fds: [8]c.pollfd = undefined;
     var n: usize = 0;
     for (windows) |w| {
         if (n == fds.len) break;
-        fds[n] = .{ .fd = w.fd, .events = c.POLLIN, .revents = 0 };
+        fds[n] = .{ .fd = w.fd(), .events = c.POLLIN, .revents = 0 };
         n += 1;
     }
     if (extra_fd) |fd| if (n < fds.len) {
@@ -33,7 +66,7 @@ pub fn wait(windows: []const *const Window, extra_fd: ?c_int, timeout_ms: i32) v
 }
 
 pub const Window = struct {
-    fd: c_int,
+    sock: c_int,
     /// w*h ARGB pixels painted by the caller, sent on `present`.
     pixels: [*]u32,
     /// Base64 of the pixel buffer plus the "img " prefix and newline.
@@ -59,19 +92,13 @@ pub const Window = struct {
     lost: bool = false,
 
     pub fn init(w: u32, h: u32) Error!Window {
-        const fd = c.socket(c.AF_UNIX, c.SOCK_STREAM, 0);
-        if (fd < 0) return error.NoDisplay;
-        errdefer _ = c.close(fd);
-
-        var addr: c.struct_sockaddr_un = std.mem.zeroes(c.struct_sockaddr_un);
-        addr.sun_family = c.AF_UNIX;
-        const dir: []const u8 = if (c.getenv("XDG_RUNTIME_DIR")) |d| std.mem.span(d) else "/tmp";
-        _ = std.mem.printSentinel(@ptrCast(&addr.sun_path), "{s}/{s}", .{ dir, socket_name }, 0) catch return error.NoDisplay;
-        if (c.connect(fd, @ptrCast(&addr), @sizeOf(c.struct_sockaddr_un)) != 0) {
-            std.debug.print("pet: cannot reach the Mindful Pet GNOME Shell extension at {s}/{s}\n" ++
-                "pet: install it with scripts/install-extension, or build with -Dbackend=x11\n", .{ dir, socket_name });
+        const sock = connectSocket() orelse {
+            var buf: [256:0]u8 = undefined;
+            std.debug.print("pet: cannot reach the Mindful Pet GNOME Shell extension at {s}\n" ++
+                "pet: install it with scripts/install-extension, or build with -Dbackend=x11\n", .{socketPath(&buf) orelse "?"});
             return error.NoDisplay;
-        }
+        };
+        errdefer _ = c.close(sock);
 
         const bytes: usize = @as(usize, w) * h * 4;
         const pixels = c.malloc(bytes) orelse return error.OutOfMemory;
@@ -83,7 +110,7 @@ pub const Window = struct {
         encoded[enc_len - 1] = '\n';
 
         var win: Window = .{
-            .fd = fd,
+            .sock = sock,
             .pixels = @ptrCast(@alignCast(pixels)),
             .encoded = encoded,
             .encoded_len = enc_len,
@@ -100,7 +127,7 @@ pub const Window = struct {
         // The extension answers with the screen size; give it a moment.
         var tries: u32 = 0;
         while (win.screen_w == 0 and tries < 50) : (tries += 1) {
-            var pfd = [_]c.pollfd{.{ .fd = fd, .events = c.POLLIN, .revents = 0 }};
+            var pfd = [_]c.pollfd{.{ .fd = win.sock, .events = c.POLLIN, .revents = 0 }};
             _ = c.poll(&pfd, 1, 100);
             win.drain();
             if (win.lost) return error.NoDisplay;
@@ -112,8 +139,18 @@ pub const Window = struct {
         return win;
     }
 
+    pub fn backendName(self: *const Window) []const u8 {
+        _ = self;
+        return name;
+    }
+
+    /// The socket descriptor, for `wait`.
+    pub fn fd(self: *const Window) c_int {
+        return self.sock;
+    }
+
     pub fn deinit(self: *Window) void {
-        _ = c.close(self.fd);
+        _ = c.close(self.sock);
         c.free(@ptrCast(self.pixels));
         c.free(@ptrCast(self.encoded));
     }
@@ -180,7 +217,7 @@ pub const Window = struct {
     fn send(self: *Window, data: []const u8) void {
         var off: usize = 0;
         while (off < data.len) {
-            const n = c.write(self.fd, data[off..].ptr, data.len - off);
+            const n = c.write(self.sock, data[off..].ptr, data.len - off);
             if (n <= 0) {
                 self.lost = true;
                 return;
@@ -199,7 +236,7 @@ pub const Window = struct {
     fn drain(self: *Window) void {
         while (true) {
             if (self.rx_len == self.rx.len) self.rx_len = 0; // garbage line, drop it
-            const n = c.recv(self.fd, self.rx[self.rx_len..].ptr, self.rx.len - self.rx_len, c.MSG_DONTWAIT);
+            const n = c.recv(self.sock, self.rx[self.rx_len..].ptr, self.rx.len - self.rx_len, c.MSG_DONTWAIT);
             if (n == 0) {
                 self.lost = true;
                 return;

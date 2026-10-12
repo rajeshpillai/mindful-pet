@@ -49,7 +49,7 @@ agreed to tackle things; it is not a promise.
 - [ ] Verify the GNOME backend by hand in the real session after a re-login:
       pointer chase over native windows, click, drag, right-click quit
 - [ ] Extension reports window geometry (title bars, edges) to the pet
-- [ ] `auto` backend: try the extension socket, fall back to X11
+- [x] `auto` backend: try the extension socket, fall back to X11 (the default build)
 - [ ] Sit on window title bars, walk along window edges
 - [x] Cursor chase over native Wayland windows (via the GNOME backend)
 

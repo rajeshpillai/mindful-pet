@@ -13,7 +13,7 @@ code name; the repo is github.com/rajeshpillai/mindful-pets.
 ## Commands the user gives
 
 - **"ship it" or "deploy"**: run `scripts/ship`. It builds with
-  `-Doptimize=ReleaseSafe` and copies `pet` (X11), `pet-gnome` and `petctl`
+  `-Doptimize=ReleaseSafe` and copies `pet` (the `auto` backend) and `petctl`
   into `~/Desktop/tools`. Commit and push first if there are changes, then ship.
 - Zig reference: https://ziglang.in (the user's own site), tracks master.
 
@@ -42,6 +42,7 @@ src/characters/     cat.zig, dog.zig, rabbit.zig (16x16 ASCII art, facing right)
 src/backend.zig     window backend interface: shared types, comptime selection, contract check
 src/backend/x11.zig Xlib implementation: window creation, XImage blit, XFixes input shape
 src/backend/gnome.zig  client of the GNOME Shell extension over a Unix socket; protocol in extension.js
+src/backend/auto.zig   default: probes the extension socket once, then wraps gnome or x11 for every window
 gnome-extension/    mindful-pet@rajeshpillai.github.io: GJS extension, one Clutter actor per pet window
 scripts/install-extension  copy the extension into ~/.local/share/gnome-shell/extensions and enable it
 src/events.zig      command vocabulary + parser (shared by every channel)
@@ -89,7 +90,8 @@ tools/sheet.zig     sprite sheet dump; tools/gen_sounds.py regenerates src/asset
   New backend (GNOME Shell extension, AppKit, Win32): add a file beside
   x11.zig exporting `name`, `Window` and `wait`, a value to the `Backend`
   enum in build.zig plus its system libraries, and an arm in the `impl`
-  switch in backend.zig. The comptime block there tells you what is missing.
+  switch in backend.zig, and an arm in auto.zig if it should be auto-detected.
+  The comptime block in backend.zig tells you what is missing.
   The command channel (`src/channel.zig`) and audio (`src/audio.zig`) follow
   the same pattern but select on `builtin.os.tag`; a Windows port adds
   `channel/win_pipe.zig` and `audio/win.zig` and two switch arms.

@@ -32,7 +32,8 @@ Everything is committed; the tree is clean.
   on 2026-10-12: `src/backend/gnome.zig` plus `gnome-extension/`, tested
   against a nested shell (hello/screen/img/move/say/quit round trip, clean
   exit). Not yet tested in the real session: that needs a re-login so GNOME
-  loads the extension, then `pet-gnome` from ~/Desktop/tools. Pointer
+  loads the extension; the shipped `pet` (auto backend) then picks it up by
+  itself and logs "gnome backend". Pointer
   chasing over native windows, click, drag and right-click-quit through the
   extension are implemented but unverified by hand.
 - No SDL or raylib installed; Zig bindings for them lag master anyway. Pure
@@ -108,6 +109,7 @@ src/channel.zig  command channel interface (by OS); channel/fifo.zig = named pip
 src/audio.zig    clips + Audio interface (by OS); audio/shell.zig = pw-play/paplay/aplay/afplay/ffplay
 src/backend/x11.zig  Xlib Window.init/present/move/setInputShape/queryPointer/pollEvent
 src/backend/gnome.zig  socket client: hello/img/move/show/hide/raise out, screen/pointer/press/release in
+src/backend/auto.zig   default build; gnome.available() decides once, union(Kind) dispatch
 gnome-extension/     extension.js: SocketService, PetWindow (Clutter.Image actor, alpha hit-test, 30 Hz pointer)
 src/events.zig   Command union and parse(); the pipe itself is in channel/fifo.zig
 src/c.h          headers for the translate-c step

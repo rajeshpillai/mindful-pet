@@ -4,11 +4,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Window backend: x11 (default, also under XWayland) or gnome (needs the
-    // GNOME Shell extension in gnome-extension/). AppKit or Win32 backends
-    // would be added to this enum and to src/backend.zig.
-    const Backend = enum { x11, gnome };
-    const backend = b.option(Backend, "backend", "window backend: x11 (default) or gnome") orelse .x11;
+    // Window backend: auto (default: the GNOME Shell extension when it is
+    // running, else X11), x11, or gnome alone. AppKit or Win32 backends would
+    // be added to this enum and to src/backend.zig.
+    const Backend = enum { auto, x11, gnome };
+    const backend = b.option(Backend, "backend", "window backend: auto (default), x11 or gnome") orelse .auto;
     const build_options = b.addOptions();
     build_options.addOption(Backend, "backend", backend);
 
@@ -33,7 +33,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     switch (backend) {
-        .x11 => {
+        .auto, .x11 => {
             exe.root_module.linkSystemLibrary("X11", .{});
             exe.root_module.linkSystemLibrary("Xfixes", .{});
             exe.root_module.linkSystemLibrary("Xext", .{});
